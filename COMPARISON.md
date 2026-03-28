@@ -48,6 +48,20 @@
 - `.timer on|off` — print execution time after each statement
 - `.explain <stmt>` — run `EXPLAIN QUERY PLAN` and render as an indented tree
 - `.mode <mode> [tbl]` — change output format
+- `.read <file>` — execute a SQL file from within the interactive REPL
+- `.show` — print a snapshot of all current settings (mode, headers, nullvalue, separator, etc.)
+- `.print [string…]` — print literal text; useful inside `.read` scripts
+- `.prompt MAIN [CONTINUE]` — customize the `vsqlite>` and `...>` prompt strings
+- `.eqp on|off` — automatically run `EXPLAIN QUERY PLAN` before every SELECT
+- `.trace [file|stderr|off]` — trace every SQL statement to a file or stderr as it executes
+- `.timeout <ms>` — set busy-wait timeout for locked databases
+- `.shell` / `.system <cmd args…>` — run an OS command from the REPL
+- `.backup <file>` — backup database via `VACUUM INTO`
+- `.fullschema` — full schema including `sqlite_stat*` tables
+- `.dbinfo` — page count, encoding, `application_id`, `user_version`, file size
+- `.stats` — page statistics and per-table row counts
+- `.lint` — report potential schema issues (missing indexes on FK columns)
+- `.cd [directory]` — change or show the working directory
 - `.help` / `.quit` / `.exit` / Ctrl+D
 
 ---
@@ -61,29 +75,12 @@
 
 ## What sqlite3 has that vsqlite lacks
 
-### Commonly used
-- `.read FILE` — execute a SQL file from within the interactive REPL (vsqlite only supports `-f` at launch)
-- `.show` — print a snapshot of all current settings (mode, headers, nullvalue, separator, etc.)
-- `.print STRING...` — print literal text; useful inside `.read` scripts
-- `.prompt MAIN CONTINUE` — customize the `vsqlite>` and `...>` prompt strings
-- `.eqp on|off|full` — automatically run `EXPLAIN QUERY PLAN` before every statement
-- `.trace FILE|on|off` — print every SQL statement to a file or stderr as it executes
-- `.timeout MS` — set busy-wait timeout for locked databases
-- `.shell` / `.system CMD ARGS...` — run an OS command from the REPL
-
-### Schema & diagnostics
-- `.fullschema ?--indent?` — full schema including `sqlite_stat*` tables
-- `.dbinfo ?DB?` — page count, encoding, `application_id`, `user_version`, file format version
-- `.lint` — report potential schema issues (e.g. missing indexes on FK columns)
-- `.stats ?ARG?` — memory usage, page-cache, and per-statement statistics
-
 ### Backup & restore
-- `.backup ?DB? FILE` / `.save FILE` — online hot backup via `sqlite3_backup` API
+- `.backup ?DB? FILE` / `.save FILE` — online hot backup via `sqlite3_backup` API (vsqlite uses `VACUUM INTO` which requires no active readers/writers)
 - `.restore ?DB? FILE` — restore a database from a backup file
 - `.clone NEWDB` — copy schema and data into a new database
 
 ### Advanced / rarely used
-- `.cd DIRECTORY` — change the working directory
 - `.crlf on|off` — control `\r\n` vs `\n` line endings in output
 - `.dbconfig ?op? ?val?` — low-level `sqlite3_db_config()` options
 - `.expert` — suggest indexes for a query (experimental)
@@ -111,11 +108,13 @@ vsqlite covers the vast majority of everyday sqlite3 usage:
 | Session control (bail, echo, log, changes, open, timer) | ✅ Full parity |
 | Import / export (dump, load, CSV/TSV with edge cases) | ✅ Full parity |
 | Schema introspection (tables, schema, indexes, databases) | ✅ Full parity |
-| Interactive file execution (`.read`) | ❌ CLI `-f` only |
-| Settings snapshot (`.show`) | ❌ Not implemented |
-| Scripting helpers (`.print`, `.prompt`, `.eqp`, `.trace`, `.timeout`, `.shell`) | ❌ Not implemented |
-| Schema diagnostics (`.fullschema`, `.dbinfo`, `.lint`, `.stats`) | ❌ Not implemented |
-| Backup / restore API (`.backup`, `.restore`, `.clone`) | ❌ Not implemented |
+| Interactive file execution (`.read`) | ✅ Implemented |
+| Settings snapshot (`.show`) | ✅ Implemented |
+| Scripting helpers (`.print`, `.prompt`, `.eqp`, `.trace`, `.timeout`, `.shell`) | ✅ Implemented |
+| Schema diagnostics (`.fullschema`, `.dbinfo`, `.lint`, `.stats`) | ✅ Implemented |
+| Working directory (`.cd`) | ✅ Implemented |
+| Backup via VACUUM INTO (`.backup`) | ✅ Implemented |
+| Backup / restore via backup API (`.restore`, `.clone`) | ❌ Not implemented |
 | Advanced internals (`.expert`, `.recover`, `.session`, `.parameter`, VFS, etc.) | ❌ Not implemented |
 
-The sqlite3 binary is ~1.5 MB of battle-hardened C. vsqlite is ~1400 lines of V.
+The sqlite3 binary is ~1.5 MB of battle-hardened C. vsqlite is ~1600 lines of V.

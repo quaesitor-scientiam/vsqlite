@@ -41,6 +41,20 @@ Interactive mode commands:
   .databases                       List attached databases
   .indexes [table]                 List indexes
   .size                            Show database file size
+  .read <file>                     Execute SQL file from within the REPL
+  .show                            Print snapshot of all current settings
+  .print [string...]               Print literal text (blank line if no args)
+  .prompt MAIN [CONTINUE]          Set REPL prompt strings
+  .eqp [on|off]                    Auto-EXPLAIN QUERY PLAN before each SELECT
+  .trace [file|stderr|off]         Trace all SQL statements as they execute
+  .timeout <ms>                    Set busy-wait timeout (milliseconds)
+  .shell <cmd> / .system <cmd>     Run an OS command
+  .backup <file>                   Backup database using VACUUM INTO
+  .fullschema                      Full schema including sqlite_stat tables
+  .dbinfo                          Database file info (page count, encoding, etc.)
+  .stats                           Page and table statistics
+  .lint                            Report missing indexes on FK columns
+  .cd [directory]                  Change or show working directory
   .quit / .exit / Ctrl+D           Exit'
 
 const history_file = os.join_path(os.home_dir(), '.vsqlite_history')
@@ -63,6 +77,12 @@ mut:
 	echo         bool   // if true, print each statement before executing
 	log_path     string // '' = logging off; non-empty = path to append statements
 	changes      bool   // if true, print row-change count after each DML
+	// New fields
+	db_path    string  // path of the currently open database file
+	eqp        bool    // if true, auto-EXPLAIN QUERY PLAN before each SELECT
+	trace_path string  // '' = tracing off; 'stderr' = stderr; else file path
+	prompt     string = 'vsqlite> '  // primary REPL prompt
+	prompt2    string = '     ...> ' // continuation prompt
 }
 
 fn main() {
@@ -83,6 +103,7 @@ fn main() {
 			eprintln('Error: cannot open "${args[0]}": ${err}')
 			exit(1)
 		}
+		db_path: args[0]
 	}
 
 	if args.len == 1 {
@@ -106,7 +127,7 @@ fn (mut app App) interactive_mode() {
 	app.refresh_completions()
 	mut buf := []string{}
 	for {
-		prompt := if buf.len == 0 { 'vsqlite> ' } else { '     ...> ' }
+		prompt := if buf.len == 0 { app.prompt } else { app.prompt2 }
 		line := app.rl.read_line(prompt) or {
 			if buf.len > 0 {
 				eprintln('Incomplete statement discarded.')
@@ -211,15 +232,33 @@ fn (mut app App) log_stmt(stmt string) {
 	os.write_file(app.log_path, existing + stmt + ';\n') or {}
 }
 
+// trace_stmt writes stmt to the trace destination (stderr or file) when tracing is enabled.
+fn (mut app App) trace_stmt(stmt string) {
+	if app.trace_path == '' {
+		return
+	}
+	if app.trace_path == 'stderr' {
+		eprintln(stmt)
+		return
+	}
+	existing := os.read_file(app.trace_path) or { '' }
+	os.write_file(app.trace_path, existing + stmt + ';\n') or {}
+}
+
 fn (mut app App) run(stmt string) bool {
 	if app.echo {
 		println(stmt)
 	}
 	app.log_stmt(stmt)
+	app.trace_stmt(stmt)
 	upper := stmt.trim_space().to_upper()
 	is_query := upper.starts_with('SELECT') || upper.starts_with('PRAGMA')
 		|| upper.starts_with('EXPLAIN') || upper.starts_with('WITH')
 		|| upper.starts_with('VALUES')
+
+	if app.eqp && is_query && !upper.starts_with('EXPLAIN') {
+		app.run_explain(stmt)
+	}
 
 	t0 := time.now()
 
@@ -277,6 +316,25 @@ fn (mut app App) exec_file(path string) {
 	content := os.read_file(path) or {
 		eprintln('Error reading "${path}": ${err}')
 		exit(1)
+	}
+	mut count := 0
+	for stmt in split_statements(content) {
+		trimmed := stmt.trim_space()
+		if trimmed == '' || trimmed.starts_with('--') {
+			continue
+		}
+		app.run(trimmed)
+		count++
+	}
+	println('Executed ${count} statement(s) from ${path}')
+}
+
+// read_file_repl executes a SQL file from within the REPL (.read command).
+// Unlike exec_file, it does NOT exit on file-not-found — it eprints and returns.
+fn (mut app App) read_file_repl(path string) {
+	content := os.read_file(path) or {
+		eprintln('Error: cannot read "${path}": ${err}')
+		return
 	}
 	mut count := 0
 	for stmt in split_statements(content) {
@@ -558,6 +616,7 @@ fn (mut app App) dot_cmd(cmd string) {
 				return
 			}
 			app.db = new_db
+			app.db_path = parts[1]
 			app.refresh_completions()
 			println('Opened ${parts[1]}')
 		}
@@ -582,6 +641,270 @@ fn (mut app App) dot_cmd(cmd string) {
 		}
 		'.size' {
 			println('Database size: ${format_bytes(app.db.size())}')
+		}
+		'.read' {
+			if parts.len < 2 {
+				eprintln('Usage: .read <file>')
+				return
+			}
+			app.read_file_repl(parts[1])
+		}
+		'.show' {
+			log_disp   := if app.log_path == '' { 'off' } else { app.log_path }
+			trace_disp := if app.trace_path == '' { 'off' } else { app.trace_path }
+			output_disp := if app.output_path == '' { 'stdout' } else { app.output_path }
+			println('       bail: ${if app.bail { "on" } else { "off" }}')
+			println('    changes: ${if app.changes { "on" } else { "off" }}')
+			println('       echo: ${if app.echo { "on" } else { "off" }}')
+			println('        eqp: ${if app.eqp { "on" } else { "off" }}')
+			println('    headers: ${if app.headers { "on" } else { "off" }}')
+			println('   log_path: ${log_disp}')
+			println('       mode: ${app.mode}')
+			println('  nullvalue: "${app.nullvalue}"')
+			println('     output: ${output_disp}')
+			println('     prompt: "${app.prompt}"')
+			println('  separator: "${app.separator}"')
+			println('      timer: ${if app.timer { "on" } else { "off" }}')
+			println('      trace: ${trace_disp}')
+		}
+		'.print' {
+			if parts.len < 2 {
+				println('')
+			} else {
+				println(parts[1..].join(' '))
+			}
+		}
+		'.prompt' {
+			if parts.len < 2 {
+				eprintln('Usage: .prompt MAIN [CONTINUE]')
+				return
+			}
+			app.prompt = parts[1]
+			if parts.len > 2 {
+				app.prompt2 = parts[2]
+			}
+		}
+		'.eqp' {
+			if parts.len < 2 {
+				println('EQP: ${if app.eqp { "on" } else { "off" }}')
+				return
+			}
+			match parts[1] {
+				'on'   { app.eqp = true;  println('EQP: on') }
+				'off'  { app.eqp = false; println('EQP: off') }
+				'full' { app.eqp = true;  println('EQP: on (full)') }
+				else   { eprintln('Use: .eqp on|off') }
+			}
+		}
+		'.trace' {
+			if parts.len < 2 || parts[1] == 'off' {
+				app.trace_path = ''
+				println('Tracing off')
+			} else if parts[1] == 'stderr' {
+				app.trace_path = 'stderr'
+				println('Tracing to stderr')
+			} else {
+				app.trace_path = parts[1]
+				println('Tracing to ${app.trace_path}')
+			}
+		}
+		'.timeout' {
+			if parts.len < 2 {
+				eprintln('Usage: .timeout <ms>')
+				return
+			}
+			ms := parts[1].int()
+			app.db.exec_none('PRAGMA busy_timeout = ${ms}')
+			println('Timeout: ${ms}ms')
+		}
+		'.shell', '.system' {
+			if parts.len < 2 {
+				eprintln('Usage: ${parts[0]} <command>')
+				return
+			}
+			shell_cmd := parts[1..].join(' ')
+			result := os.execute(shell_cmd)
+			if result.output.len > 0 {
+				print(result.output)
+				// Ensure newline if output does not end with one
+				if !result.output.ends_with('\n') {
+					println('')
+				}
+			}
+			if result.exit_code != 0 {
+				eprintln('Exit code: ${result.exit_code}')
+			}
+		}
+		'.backup' {
+			if parts.len < 2 {
+				eprintln('Usage: .backup <file>')
+				return
+			}
+			escaped := parts[1].replace("'", "''")
+			app.db.exec("VACUUM INTO '${escaped}'") or {
+				eprintln('Error: ${err}')
+				return
+			}
+			println('Backed up to ${parts[1]}')
+		}
+		'.fullschema' {
+			schema := app.db.schema('')
+			if schema == '' {
+				println('(no schema found)')
+			} else {
+				println(schema)
+			}
+			// Print sqlite_stat tables if they exist
+			for stat_tbl in ['sqlite_stat1', 'sqlite_stat2', 'sqlite_stat3', 'sqlite_stat4'] {
+				rows := app.db.exec('SELECT * FROM ${stat_tbl}') or { continue }
+				if rows.len == 0 {
+					continue
+				}
+				println('')
+				println('/* contents of ${stat_tbl} */')
+				for row in rows {
+					println(row.vals.join('|'))
+				}
+			}
+		}
+		'.dbinfo' {
+			// Filename from database_list
+			db_list_rows := app.db.exec('PRAGMA database_list') or { []Row{} }
+			mut filename := app.db_path
+			for row in db_list_rows {
+				if row.vals.len > 1 && row.vals[1] == 'main' {
+					filename = if row.vals.len > 2 { row.vals[2] } else { app.db_path }
+					break
+				}
+			}
+			// SQLite version
+			ver_rows := app.db.exec('SELECT sqlite_version()') or { []Row{} }
+			sqlite_ver := if ver_rows.len > 0 && ver_rows[0].vals.len > 0 { ver_rows[0].vals[0] } else { 'unknown' }
+			// PRAGMAs
+			pc_rows  := app.db.exec('PRAGMA page_count')    or { []Row{} }
+			ps_rows  := app.db.exec('PRAGMA page_size')     or { []Row{} }
+			enc_rows := app.db.exec('PRAGMA encoding')      or { []Row{} }
+			jm_rows  := app.db.exec('PRAGMA journal_mode')  or { []Row{} }
+			fl_rows  := app.db.exec('PRAGMA freelist_count') or { []Row{} }
+			ai_rows  := app.db.exec('PRAGMA application_id') or { []Row{} }
+			uv_rows  := app.db.exec('PRAGMA user_version')  or { []Row{} }
+			page_count    := if pc_rows.len > 0  { pc_rows[0].vals[0]  } else { '0' }
+			page_size     := if ps_rows.len > 0  { ps_rows[0].vals[0]  } else { '0' }
+			encoding      := if enc_rows.len > 0 { enc_rows[0].vals[0] } else { 'unknown' }
+			journal_mode  := if jm_rows.len > 0  { jm_rows[0].vals[0]  } else { 'unknown' }
+			freelist_count := if fl_rows.len > 0 { fl_rows[0].vals[0]  } else { '0' }
+			application_id := if ai_rows.len > 0 { ai_rows[0].vals[0]  } else { '0' }
+			user_version  := if uv_rows.len > 0  { uv_rows[0].vals[0]  } else { '0' }
+			file_size     := page_count.i64() * page_size.i64()
+			println('       filename: ${filename}')
+			println(' sqlite_version: ${sqlite_ver}')
+			println('     page_count: ${page_count}')
+			println('      page_size: ${page_size}')
+			println('      file_size: ${format_bytes(file_size)}')
+			println('       encoding: ${encoding}')
+			println('   journal_mode: ${journal_mode}')
+			println(' freelist_count: ${freelist_count}')
+			println(' application_id: ${application_id}')
+			println('   user_version: ${user_version}')
+		}
+		'.stats' {
+			pc_rows := app.db.exec('PRAGMA page_count')     or { []Row{} }
+			ps_rows := app.db.exec('PRAGMA page_size')      or { []Row{} }
+			fl_rows := app.db.exec('PRAGMA freelist_count') or { []Row{} }
+			cs_rows := app.db.exec('PRAGMA cache_size')     or { []Row{} }
+			page_count     := if pc_rows.len > 0 { pc_rows[0].vals[0] } else { '0' }
+			page_size      := if ps_rows.len > 0 { ps_rows[0].vals[0] } else { '0' }
+			freelist_count := if fl_rows.len > 0 { fl_rows[0].vals[0] } else { '0' }
+			cache_size     := if cs_rows.len > 0 { cs_rows[0].vals[0] } else { '0' }
+			pc := page_count.i64()
+			ps := page_size.i64()
+			fl := freelist_count.i64()
+			total_size := pc * ps
+			used_size  := (pc - fl) * ps
+			free_size  := fl * ps
+			println('   page_count: ${page_count}')
+			println('    page_size: ${page_size}')
+			println('   total_size: ${format_bytes(total_size)}')
+			println('    used_size: ${format_bytes(used_size)}')
+			println('    free_size: ${format_bytes(free_size)}')
+			println('   cache_size: ${cache_size}')
+			// Per-table row counts
+			tables := app.db.tables()
+			if tables.len > 0 {
+				println('')
+				println('Table row counts:')
+				for tbl in tables {
+					escaped_tbl := tbl.replace('"', '""')
+					cnt_rows := app.db.exec('SELECT COUNT(*) FROM "${escaped_tbl}"') or { continue }
+					cnt := if cnt_rows.len > 0 { cnt_rows[0].vals[0] } else { '0' }
+					println('  ${tbl}: ${cnt}')
+				}
+			}
+		}
+		'.lint' {
+			tables := app.db.tables()
+			mut issue_count := 0
+			for tbl in tables {
+				escaped_tbl := tbl.replace('"', '""')
+				// Get FK columns for this table
+				fk_rows := app.db.exec('PRAGMA foreign_key_list("${escaped_tbl}")') or { continue }
+				if fk_rows.len == 0 {
+					continue
+				}
+				// Collect indexed columns: PK columns from table_info + columns from index_info
+				mut indexed_cols := map[string]bool{}
+				ti_rows := app.db.exec('PRAGMA table_info("${escaped_tbl}")') or { []Row{} }
+				for ti_row in ti_rows {
+					// pk column (vals[5] > 0 means it's part of PK)
+					if ti_row.vals.len > 5 && ti_row.vals[5] != '0' {
+						indexed_cols[ti_row.vals[1]] = true
+					}
+				}
+				il_rows := app.db.exec('PRAGMA index_list("${escaped_tbl}")') or { []Row{} }
+				for il_row in il_rows {
+					if il_row.vals.len < 2 {
+						continue
+					}
+					idx_name := il_row.vals[1].replace('"', '""')
+					ii_rows := app.db.exec('PRAGMA index_info("${idx_name}")') or { continue }
+					for ii_row in ii_rows {
+						if ii_row.vals.len > 2 {
+							indexed_cols[ii_row.vals[2]] = true
+						}
+					}
+				}
+				// Check each FK column
+				for fk_row in fk_rows {
+					if fk_row.vals.len < 4 {
+						continue
+					}
+					// foreign_key_list columns: id, seq, table, from, to, ...
+					fk_col    := fk_row.vals[3] // 'from' column
+					ref_table := fk_row.vals[2] // referenced table
+					ref_col   := fk_row.vals[4] // 'to' column
+					if fk_col !in indexed_cols {
+						println('${tbl}: FK column "${fk_col}" -> ${ref_table}(${ref_col}) has no covering index')
+						issue_count++
+					}
+				}
+			}
+			if issue_count == 0 {
+				println('No issues found.')
+			} else {
+				println('${issue_count} issue${if issue_count == 1 { "" } else { "s" }} found.')
+			}
+		}
+		'.cd' {
+			if parts.len < 2 {
+				cwd := os.getwd()
+				println(cwd)
+				return
+			}
+			os.chdir(parts[1]) or {
+				eprintln('Error: cannot change to "${parts[1]}": ${err}')
+				return
+			}
+			println('Changed to ${parts[1]}')
 		}
 		else {
 			eprintln('Unknown command: ${parts[0]}. Type .help for help.')
@@ -612,7 +935,9 @@ fn (mut app App) refresh_completions() {
 	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.nullvalue', '.separator',
 		'.width', '.output', '.once', '.timer', '.explain', '.import', '.export',
 		'.dump', '.load', '.bail', '.echo', '.log', '.changes', '.open',
-		'.databases', '.indexes', '.size', '.help', '.quit', '.exit']
+		'.databases', '.indexes', '.size', '.help', '.quit', '.exit',
+		'.read', '.show', '.print', '.prompt', '.eqp', '.trace', '.timeout',
+		'.shell', '.system', '.backup', '.fullschema', '.dbinfo', '.stats', '.lint', '.cd']
 	kws := ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE',
 		'CREATE', 'TABLE', 'DROP', 'ALTER', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
 		'ON', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT',
