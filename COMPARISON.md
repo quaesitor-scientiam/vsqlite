@@ -4,9 +4,15 @@
 - Interactive REPL with dot commands
 - Single-statement execution from CLI
 - Execute SQL from file (`-f` vs `.read`)
-- Table, CSV, and line output modes
+- Table, CSV, line, box, markdown, JSON, HTML, insert, and quote output modes
 - `.tables`, `.schema`, `.mode`, `.headers`, `.import`, `.export`
+- `.nullvalue`, `.separator`, `.width` — display customisation
+- `.output <file>` / `.once <file>` — redirect query output to a file
+- `.indexes`, `.databases`, `.size`
 - Reports affected rows / last insert rowid
+- Multi-line statement editing; continuation prompt `...>` until `;`
+- Tab completion for SQL keywords, table names, column names, and dot commands
+- Command history persisted to `~/.vsqlite_history`
 
 ---
 
@@ -48,4 +54,4 @@
 
 vsqlite is roughly a ~55% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion) is on par with sqlite3. Output richness (all major modes, `.width`, `.nullvalue`, `.separator`, `.output`/`.once`) is now largely on par too. The biggest remaining gaps are **import/export completeness** (`.dump`, extensions) and **SQL execution extras** (prepared statements, `.timer`, `.bail`). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller still.
 
-The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~500 lines of V.
+The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~1200 lines of V.
