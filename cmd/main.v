@@ -1,6 +1,7 @@
 module main
 
 import os
+import readline
 import vsqlite
 
 const version = '0.1.0'
@@ -26,9 +27,12 @@ Interactive mode commands:
   .size                            Show database file size
   .quit / .exit / Ctrl+D           Exit'
 
+const history_file = os.join_path(os.home_dir(), '.vsqlite_history')
+
 struct App {
 mut:
 	db        vsqlite.DB
+	rl        readline.Readline
 	mode      vsqlite.OutputMode = .table
 	headers   bool               = true
 	last_rows []vsqlite.Row
@@ -70,13 +74,10 @@ fn main() {
 fn (mut app App) interactive_mode() {
 	println('vsqlite ${version} - Type .help for commands, .quit to exit')
 	println('')
+	app.rl.skip_empty = true
+	app.load_history()
 	for {
-		print('vsqlite> ')
-		flush_stdout()
-		line := os.get_line()
-		if line == '' {
-			break
-		}
+		line := app.rl.read_line('vsqlite> ') or { break } // EOF / Ctrl+D
 		trimmed := line.trim_space()
 		if trimmed == '' {
 			continue
@@ -90,7 +91,30 @@ fn (mut app App) interactive_mode() {
 			app.run(trimmed)
 		}
 	}
+	app.save_history()
 	println('\nBye!')
+}
+
+fn (mut app App) load_history() {
+	history_load(mut app.rl, history_file)
+}
+
+fn (app App) save_history() {
+	history_save(app.rl, history_file)
+}
+
+fn history_load(mut rl readline.Readline, path string) {
+	content := os.read_file(path) or { return }
+	for line in content.split('\n') {
+		if line.len > 0 {
+			rl.previous_lines << line.runes()
+		}
+	}
+}
+
+fn history_save(rl readline.Readline, path string) {
+	lines := rl.previous_lines.map(it.string()).filter(it.len > 0)
+	os.write_file(path, lines.join('\n') + '\n') or {}
 }
 
 fn (mut app App) run(stmt string) {

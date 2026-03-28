@@ -68,6 +68,22 @@ printf ".mode csv\nSELECT * FROM users\n" | ./vsqlite mydb.sqlite > out.csv
 | `.help` | Show all commands |
 | `.quit` / `.exit` / Ctrl+D | Exit |
 
+### Line editing
+
+The interactive REPL uses V's built-in `readline` module for a full line-editing experience:
+
+| Key | Action |
+|---|---|
+| ↑ / ↓ | Walk command history |
+| Ctrl+R | Reverse incremental history search |
+| ← / → | Move cursor within the line |
+| Home / Ctrl+A | Jump to beginning of line |
+| End / Ctrl+E | Jump to end of line |
+| Ctrl+K | Delete to end of line |
+| Backspace / Delete | Delete character |
+
+History is persisted to `~/.vsqlite_history` across sessions.
+
 ### Output modes
 
 **table** (default) — aligned ASCII table with bold headers

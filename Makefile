@@ -8,6 +8,7 @@ build:
 
 test:
 	v -path "$(VPATH)" test tests/
+	v -path "$(VPATH)" test cmd/
 
 clean:
 	rm -f $(BIN)

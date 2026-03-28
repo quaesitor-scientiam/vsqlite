@@ -13,7 +13,7 @@
 ## What sqlite3 has that vsqlite lacks
 
 ### Shell quality
-- Readline/libedit: history (↑↓), Ctrl+R search, cursor movement — vsqlite has none of this; `os.get_line()` is bare
+- ~~Readline/libedit: history (↑↓), Ctrl+R search, cursor movement~~ — **implemented** via V's `readline` module; history persisted to `~/.vsqlite_history`
 - Multi-line statement editing (sqlite3 waits for `;` before executing)
 - Tab completion for table/column names
 
@@ -46,6 +46,6 @@
 
 ## Summary
 
-vsqlite is roughly a ~20% feature implementation of sqlite3. The biggest practical gaps are **readline support** (makes interactive use painful) and **multi-line input** (can't paste a block of SQL). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller.
+vsqlite is roughly a ~25% feature implementation of sqlite3. The biggest remaining practical gaps are **multi-line input** (can't paste a block of SQL) and **tab completion**. Readline support (history, cursor movement, Ctrl+R search) is now on par with sqlite3. For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller.
 
-The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~450 lines of V.
+The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~500 lines of V.
