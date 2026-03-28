@@ -2,6 +2,7 @@ module main
 
 import os
 import readline
+import time
 
 // --- format_bytes ---
 
@@ -220,6 +221,87 @@ fn test_stmt_complete_trailing_whitespace() {
 
 fn test_stmt_complete_empty() {
 	assert stmt_complete([]) == false
+}
+
+// --- split_statements ---
+
+fn test_split_single_no_semicolon() {
+	assert split_statements('SELECT 1') == ['SELECT 1']
+}
+
+fn test_split_single_with_semicolon() {
+	assert split_statements('SELECT 1;') == ['SELECT 1']
+}
+
+fn test_split_multiple_statements() {
+	stmts := split_statements('SELECT 1; SELECT 2; SELECT 3')
+	assert stmts.len == 3
+	assert stmts[0] == 'SELECT 1'
+	assert stmts[1] == 'SELECT 2'
+	assert stmts[2] == 'SELECT 3'
+}
+
+fn test_split_multiple_with_trailing_semicolon() {
+	stmts := split_statements('SELECT 1; SELECT 2;')
+	assert stmts.len == 2
+	assert stmts[0] == 'SELECT 1'
+	assert stmts[1] == 'SELECT 2'
+}
+
+fn test_split_quoted_semicolon_not_split() {
+	stmts := split_statements("INSERT INTO t VALUES ('a;b'); SELECT 1")
+	assert stmts.len == 2
+	assert stmts[0] == "INSERT INTO t VALUES ('a;b')"
+	assert stmts[1] == 'SELECT 1'
+}
+
+fn test_split_double_quoted_semicolon_not_split() {
+	stmts := split_statements('SELECT "col;name" FROM t; SELECT 2')
+	assert stmts.len == 2
+	assert stmts[0] == 'SELECT "col;name" FROM t'
+	assert stmts[1] == 'SELECT 2'
+}
+
+fn test_split_empty_input() {
+	assert split_statements('') == []string{}
+}
+
+fn test_split_only_semicolons() {
+	assert split_statements(';;;') == []string{}
+}
+
+fn test_split_multiline_statement() {
+	src := 'SELECT id,\nname\nFROM users\nWHERE id = 1; SELECT 2'
+	stmts := split_statements(src)
+	assert stmts.len == 2
+	assert stmts[0].contains('FROM users')
+	assert stmts[1] == 'SELECT 2'
+}
+
+fn test_split_whitespace_between() {
+	stmts := split_statements('  SELECT 1 ;  SELECT 2  ;  ')
+	assert stmts.len == 2
+	assert stmts[0] == 'SELECT 1'
+	assert stmts[1] == 'SELECT 2'
+}
+
+// --- format_duration ---
+
+fn test_format_duration_microseconds() {
+	d := time.Duration(500 * 1000) // 500 µs
+	assert format_duration(d) == '500 µs'
+}
+
+fn test_format_duration_milliseconds() {
+	d := time.Duration(2_500 * 1000) // 2500 µs = 2.500 ms
+	result := format_duration(d)
+	assert result.contains('ms')
+	assert result.contains('2.')
+}
+
+fn test_format_duration_zero() {
+	d := time.Duration(0)
+	assert format_duration(d) == '0 µs'
 }
 
 // --- roundtrip ---

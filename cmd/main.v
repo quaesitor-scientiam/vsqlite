@@ -2,6 +2,7 @@ module main
 
 import os
 import readline
+import time
 import vsqlite
 
 const version = '0.1.0'
@@ -27,6 +28,8 @@ Interactive mode commands:
   .width [N1 N2 ...]               Set per-column widths (0 = reset to auto)
   .output [file|-]                 Redirect output to file (no arg = stdout)
   .once <file>                     Redirect next query result to file
+  .timer [on|off]                  Toggle query execution timing (default: off)
+  .explain <stmt>                  Show EXPLAIN QUERY PLAN tree for a statement
   .import <file> <table>           Import CSV into table
   .export <file>                   Export last query to CSV
   .databases                       List attached databases
@@ -49,6 +52,7 @@ mut:
 	output_path  string // '' = stdout; non-empty = path to write query results
 	output_once  bool   // if true, reset output_path after the next query result
 	insert_table string = 'tbl'
+	timer        bool   // if true, print execution time after each statement
 }
 
 fn main() {
@@ -115,9 +119,11 @@ fn (mut app App) interactive_mode() {
 		}
 		buf << line
 		if stmt_complete(buf) {
-			full := buf.join('\n').trim_space().trim_right(';').trim_space()
-			if full != '' {
-				app.run(full)
+			full := buf.join('\n').trim_space()
+			for s in split_statements(full) {
+				if s != '' {
+					app.run(s)
+				}
 			}
 			buf = []string{}
 		}
@@ -192,21 +198,31 @@ fn (mut app App) run(stmt string) {
 		|| upper.starts_with('EXPLAIN') || upper.starts_with('WITH')
 		|| upper.starts_with('VALUES')
 
+	t0 := time.now()
+
 	if is_query {
 		rows := app.db.exec(stmt) or {
 			eprintln('Error: ${err}')
 			return
 		}
+		elapsed := time.since(t0)
 		if rows.len == 0 {
 			app.finish_output()
+			if app.timer {
+				println('Run time: ${format_duration(elapsed)}')
+			}
 			return
 		}
 		app.last_rows = rows
 		app.write_out(vsqlite.format_opts(rows, app.make_format_opts()))
 		app.write_out('(${rows.len} row${if rows.len == 1 { '' } else { 's' }})')
 		app.finish_output()
+		if app.timer {
+			println('Run time: ${format_duration(elapsed)}')
+		}
 	} else {
 		app.db.exec_none(stmt)
+		elapsed := time.since(t0)
 		affected := app.db.affected_rows()
 		last_id := app.db.last_insert_rowid()
 		if upper.starts_with('INSERT') {
@@ -215,6 +231,9 @@ fn (mut app App) run(stmt string) {
 			println('${affected} row${if affected == 1 { '' } else { 's' }} affected')
 		} else {
 			println('OK')
+		}
+		if app.timer {
+			println('Run time: ${format_duration(elapsed)}')
 		}
 		// Schema may have changed — rebuild completions.
 		if upper.starts_with('CREATE') || upper.starts_with('DROP')
@@ -230,7 +249,7 @@ fn (mut app App) exec_file(path string) {
 		exit(1)
 	}
 	mut count := 0
-	for stmt in content.split(';') {
+	for stmt in split_statements(content) {
 		trimmed := stmt.trim_space()
 		if trimmed == '' || trimmed.starts_with('--') {
 			continue
@@ -376,6 +395,33 @@ fn (mut app App) dot_cmd(cmd string) {
 			app.output_path = parts[1]
 			app.output_once = true
 		}
+		'.timer' {
+			if parts.len < 2 {
+				println('Timer: ${if app.timer { "on" } else { "off" }}')
+				return
+			}
+			match parts[1] {
+				'on' {
+					app.timer = true
+					println('Timer: on')
+				}
+				'off' {
+					app.timer = false
+					println('Timer: off')
+				}
+				else {
+					eprintln('Use: .timer on|off')
+				}
+			}
+		}
+		'.explain' {
+			if parts.len < 2 {
+				eprintln('Usage: .explain <sql statement>')
+				return
+			}
+			stmt := parts[1..].join(' ')
+			app.run_explain(stmt)
+		}
 		'.import' {
 			if parts.len < 3 {
 				eprintln('Usage: .import <file> <table>')
@@ -445,8 +491,8 @@ fn (mut app App) import_csv(file string, table string) {
 // current schema.  Call once at startup and again after any DDL statement.
 fn (mut app App) refresh_completions() {
 	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.nullvalue', '.separator',
-		'.width', '.output', '.once', '.import', '.export', '.databases', '.indexes',
-		'.size', '.help', '.quit', '.exit']
+		'.width', '.output', '.once', '.timer', '.explain', '.import', '.export',
+		'.databases', '.indexes', '.size', '.help', '.quit', '.exit']
 	kws := ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE',
 		'CREATE', 'TABLE', 'DROP', 'ALTER', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
 		'ON', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT',
@@ -517,5 +563,82 @@ fn format_bytes(n i64) string {
 		return '${n / (1024 * 1024)} MB'
 	} else {
 		return '${n / (1024 * 1024 * 1024)} GB'
+	}
+}
+
+// format_duration renders a time.Duration as a human-readable string.
+fn format_duration(d time.Duration) string {
+	us := d.microseconds()
+	if us < 1000 {
+		return '${us} µs'
+	}
+	ms := us / 1000
+	frac := us % 1000
+	frac_str := if frac < 10 {
+		'00${frac}'
+	} else if frac < 100 {
+		'0${frac}'
+	} else {
+		'${frac}'
+	}
+	return '${ms}.${frac_str} ms'
+}
+
+// split_statements splits a SQL string on semicolons while respecting single-
+// and double-quoted strings.  Each returned statement has its trailing
+// semicolon removed and is not empty.
+fn split_statements(src string) []string {
+	mut stmts := []string{}
+	mut start := 0
+	mut in_single := false
+	mut in_double := false
+	for i := 0; i < src.len; i++ {
+		c := src[i]
+		if c == `'` && !in_double {
+			in_single = !in_single
+		} else if c == `"` && !in_single {
+			in_double = !in_double
+		} else if c == `;` && !in_single && !in_double {
+			s := src[start..i].trim_space()
+			if s != '' {
+				stmts << s
+			}
+			start = i + 1
+		}
+	}
+	// Any trailing text after the last semicolon (or the whole input if no `;`).
+	s := src[start..].trim_space()
+	if s != '' {
+		stmts << s
+	}
+	return stmts
+}
+
+// run_explain runs EXPLAIN QUERY PLAN on stmt and renders the result as a tree.
+fn (mut app App) run_explain(stmt string) {
+	rows := app.db.exec('EXPLAIN QUERY PLAN ${stmt}') or {
+		eprintln('Error: ${err}')
+		return
+	}
+	if rows.len == 0 {
+		println('(no query plan)')
+		return
+	}
+	println('QUERY PLAN')
+	app.print_eqp_tree(rows, 0, 0)
+}
+
+// print_eqp_tree recursively prints EXPLAIN QUERY PLAN rows as an indented tree.
+// EXPLAIN QUERY PLAN columns (by index): 0=id, 1=parent, 2=notused, 3=detail
+fn (mut app App) print_eqp_tree(rows []vsqlite.Row, parent_id int, depth int) {
+	indent := '  '.repeat(depth)
+	for row in rows {
+		if row.vals.len < 4 {
+			continue
+		}
+		if row.vals[1].int() == parent_id {
+			println('${indent}|--${row.vals[3]}')
+			app.print_eqp_tree(rows, row.vals[0].int(), depth + 1)
+		}
 	}
 }

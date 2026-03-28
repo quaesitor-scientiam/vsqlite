@@ -65,6 +65,8 @@ printf ".mode csv\nSELECT * FROM users\n" | ./vsqlite mydb.sqlite > out.csv
 | `.width [N1 N2 …]` | Fix per-column widths in table/box/markdown modes; `.width 0` resets to auto |
 | `.output [file\|-]` | Redirect all query output to *file*; no arg or `-` resets to stdout |
 | `.once <file>` | Redirect the **next** query result only to *file*, then resume stdout |
+| `.timer [on\|off]` | Toggle execution timing; prints elapsed time after each statement |
+| `.explain <stmt>` | Show `EXPLAIN QUERY PLAN` as an indented tree for *stmt* |
 | `.import <file> <table>` | Import a CSV file into a table |
 | `.export <file>` | Export the last query result to CSV |
 | `.indexes [table]` | List indexes |
@@ -216,6 +218,22 @@ println(row.get('email'))
 row := db.exec_one('SELECT * FROM users LIMIT 1')!
 m := row.as_map()   // map[string]string
 println(m['name'])
+```
+
+### Parameterized queries
+
+Use `?` as a placeholder; pass values as a `[]string`:
+
+```v
+rows := db.exec_params('SELECT * FROM users WHERE id = ?', ['1'])!
+rows2 := db.exec_params('SELECT * FROM users WHERE age >= ? AND age <= ?', ['25', '35'])!
+```
+
+For mutations with parameters:
+
+```v
+db.exec_none_params('INSERT INTO users VALUES (?, ?, ?)', ['4', 'Dave', '28'])
+db.exec_none_params('UPDATE users SET age = ? WHERE id = ?', ['99', '1'])
 ```
 
 ### Mutations

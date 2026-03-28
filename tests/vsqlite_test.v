@@ -385,3 +385,56 @@ fn test_format_all_empty() {
 		assert vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: mode }) == ''
 	}
 }
+
+// --- exec_params ---
+
+fn test_exec_params_single_bind() {
+	mut db := setup()
+	rows := db.exec_params('SELECT * FROM users WHERE id = ?', ['1']) or { panic(err) }
+	assert rows.len == 1
+	assert rows[0].get('name') == 'Alice'
+}
+
+fn test_exec_params_multiple_binds() {
+	mut db := setup()
+	rows := db.exec_params('SELECT * FROM users WHERE age >= ? AND age <= ?', ['25', '30']) or {
+		panic(err)
+	}
+	assert rows.len == 2
+}
+
+fn test_exec_params_no_rows() {
+	mut db := setup()
+	rows := db.exec_params('SELECT * FROM users WHERE id = ?', ['999']) or { panic(err) }
+	assert rows.len == 0
+}
+
+fn test_exec_params_string_bind() {
+	mut db := setup()
+	rows := db.exec_params("SELECT * FROM users WHERE name = ?", ['Bob']) or { panic(err) }
+	assert rows.len == 1
+	assert rows[0].get('age') == '25'
+}
+
+fn test_exec_none_params_insert() {
+	mut db := setup()
+	db.exec_none_params('INSERT INTO users VALUES (?, ?, ?)', ['4', 'Dave', '28'])
+	assert db.last_insert_rowid() == 4
+	rows := db.exec('SELECT * FROM users WHERE id = 4') or { panic(err) }
+	assert rows.len == 1
+	assert rows[0].get('name') == 'Dave'
+}
+
+fn test_exec_none_params_update() {
+	mut db := setup()
+	db.exec_none_params('UPDATE users SET age = ? WHERE id = ?', ['99', '1'])
+	rows := db.exec('SELECT age FROM users WHERE id = 1') or { panic(err) }
+	assert rows[0].vals[0] == '99'
+}
+
+fn test_exec_none_params_delete() {
+	mut db := setup()
+	db.exec_none_params('DELETE FROM users WHERE id = ?', ['2'])
+	rows := db.exec('SELECT * FROM users') or { panic(err) }
+	assert rows.len == 2
+}

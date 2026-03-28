@@ -114,6 +114,26 @@ pub fn (mut db DB) columns(table string) []string {
 	return rows.map(it.vals[1])
 }
 
+// exec_params runs a parameterized query with ? placeholders and returns rows.
+// Example: db.exec_params('SELECT * FROM users WHERE id = ?', ['1'])!
+pub fn (mut db DB) exec_params(stmt string, params []string) ![]Row {
+	raw := db.conn.exec_param_many(stmt, params)!
+	if raw.len == 0 {
+		return []Row{}
+	}
+	cols := db.column_names(stmt)
+	return raw.map(Row{
+		cols: cols
+		vals: it.vals
+	})
+}
+
+// exec_none_params runs a parameterized DML/DDL statement with ? placeholders.
+// Example: db.exec_none_params('INSERT INTO t VALUES (?, ?)', ['1', 'Alice'])
+pub fn (mut db DB) exec_none_params(stmt string, params []string) {
+	db.conn.exec_param_many(stmt, params) or {}
+}
+
 // column_names resolves column names for a SELECT statement.
 // For SELECT *, it falls back to PRAGMA table_info.
 fn (mut db DB) column_names(stmt string) []string {
