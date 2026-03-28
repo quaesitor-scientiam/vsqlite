@@ -68,6 +68,18 @@ printf ".mode csv\nSELECT * FROM users\n" | ./vsqlite mydb.sqlite > out.csv
 | `.help` | Show all commands |
 | `.quit` / `.exit` / Ctrl+D | Exit |
 
+### Multi-line statements
+
+The REPL accumulates input until a semicolon (`;`) is entered, just like `sqlite3`:
+
+```
+vsqlite> SELECT id, name
+     ...> FROM users
+     ...> WHERE age > 25;
+```
+
+Dot commands (`.tables`, `.mode`, …) execute immediately and do not need a semicolon.
+
 ### Line editing
 
 The interactive REPL uses V's built-in `readline` module for a full line-editing experience:

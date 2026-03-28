@@ -76,23 +76,46 @@ fn (mut app App) interactive_mode() {
 	println('')
 	app.rl.skip_empty = true
 	app.load_history()
+	mut buf := []string{}
 	for {
-		line := app.rl.read_line('vsqlite> ') or { break } // EOF / Ctrl+D
+		prompt := if buf.len == 0 { 'vsqlite> ' } else { '     ...> ' }
+		line := app.rl.read_line(prompt) or {
+			if buf.len > 0 {
+				eprintln('Incomplete statement discarded.')
+			}
+			break
+		} // EOF / Ctrl+D
 		trimmed := line.trim_space()
 		if trimmed == '' {
 			continue
 		}
-		if trimmed in ['.quit', '.exit', 'quit', 'exit'] {
-			break
+		// Dot commands and exit keywords need no semicolon — execute immediately
+		if buf.len == 0 {
+			if trimmed in ['.quit', '.exit', 'quit', 'exit'] {
+				break
+			}
+			if trimmed.starts_with('.') {
+				app.dot_cmd(trimmed)
+				continue
+			}
 		}
-		if trimmed.starts_with('.') {
-			app.dot_cmd(trimmed)
-		} else {
-			app.run(trimmed)
+		buf << line
+		if stmt_complete(buf) {
+			full := buf.join('\n').trim_space().trim_right(';').trim_space()
+			if full != '' {
+				app.run(full)
+			}
+			buf = []string{}
 		}
 	}
 	app.save_history()
 	println('\nBye!')
+}
+
+// stmt_complete reports whether the lines accumulated so far form a complete
+// SQL statement, i.e. the joined text ends with a semicolon.
+fn stmt_complete(lines []string) bool {
+	return lines.join('\n').trim_space().ends_with(';')
 }
 
 fn (mut app App) load_history() {

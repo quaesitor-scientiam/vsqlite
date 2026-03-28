@@ -102,6 +102,32 @@ fn test_history_save_empty_history() {
 	assert content.trim_space() == ''
 }
 
+// --- stmt_complete ---
+
+fn test_stmt_complete_single_line_with_semicolon() {
+	assert stmt_complete(['SELECT 1;']) == true
+}
+
+fn test_stmt_complete_single_line_no_semicolon() {
+	assert stmt_complete(['SELECT 1']) == false
+}
+
+fn test_stmt_complete_multiline_complete() {
+	assert stmt_complete(['SELECT *', 'FROM users', 'WHERE id = 1;']) == true
+}
+
+fn test_stmt_complete_multiline_incomplete() {
+	assert stmt_complete(['SELECT *', 'FROM users']) == false
+}
+
+fn test_stmt_complete_trailing_whitespace() {
+	assert stmt_complete(['SELECT 1;   ']) == true
+}
+
+fn test_stmt_complete_empty() {
+	assert stmt_complete([]) == false
+}
+
 // --- roundtrip ---
 
 fn test_history_roundtrip() {
