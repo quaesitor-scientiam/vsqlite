@@ -1,5 +1,6 @@
 module main
 
+import os
 import vsqlite
 
 // --- DB connection ---
@@ -437,4 +438,146 @@ fn test_exec_none_params_delete() {
 	db.exec_none_params('DELETE FROM users WHERE id = ?', ['2'])
 	rows := db.exec('SELECT * FROM users') or { panic(err) }
 	assert rows.len == 2
+}
+
+// --- dump ---
+
+fn test_dump_contains_create() {
+	mut db := setup()
+	text := db.dump()
+	assert text.contains('CREATE TABLE users')
+}
+
+fn test_dump_contains_data() {
+	mut db := setup()
+	text := db.dump()
+	assert text.contains('Alice')
+	assert text.contains('Bob')
+	assert text.contains('Carol')
+}
+
+fn test_dump_transaction_wrapped() {
+	mut db := setup()
+	text := db.dump()
+	assert text.contains('BEGIN TRANSACTION;')
+	assert text.contains('COMMIT;')
+}
+
+fn test_dump_insert_statements() {
+	mut db := setup()
+	text := db.dump()
+	assert text.contains('INSERT INTO "users"')
+	assert text.contains('"id"')
+	assert text.contains('"name"')
+	assert text.contains('"age"')
+}
+
+fn test_dump_empty_db() {
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	text := db.dump()
+	assert text.contains('BEGIN TRANSACTION;')
+	assert text.contains('COMMIT;')
+	assert !text.contains('INSERT')
+}
+
+fn test_dump_includes_indexes() {
+	mut db := setup()
+	db.exec_none('CREATE INDEX idx_name ON users(name)')
+	text := db.dump()
+	assert text.contains('CREATE INDEX idx_name')
+}
+
+fn test_dump_roundtrip() {
+	// Dump a database and reload it; the data should be identical.
+	mut src := setup()
+	script := src.dump()
+	mut dst := vsqlite.connect(':memory:') or { panic(err) }
+	for stmt in script.split(';') {
+		s := stmt.trim_space()
+		if s != '' && !s.starts_with('--') {
+			dst.exec_none(s)
+		}
+	}
+	rows := dst.exec('SELECT * FROM users ORDER BY id') or { panic(err) }
+	assert rows.len == 3
+	assert rows[0].get('name') == 'Alice'
+	assert rows[1].get('name') == 'Bob'
+	assert rows[2].get('name') == 'Carol'
+}
+
+// --- parse_csv_records / read_csv_sep / read_tsv ---
+
+fn test_parse_csv_records_basic() {
+	records := vsqlite.parse_csv_records('a,b\n1,2\n', `,`)
+	assert records.len == 2
+	assert records[0] == ['a', 'b']
+	assert records[1] == ['1', '2']
+}
+
+fn test_parse_csv_records_crlf() {
+	records := vsqlite.parse_csv_records('a,b\r\n1,2\r\n', `,`)
+	assert records.len == 2
+	assert records[0] == ['a', 'b']
+	assert records[1] == ['1', '2']
+}
+
+fn test_parse_csv_records_embedded_newline() {
+	// A quoted field that contains a literal newline
+	content := '"line1\nline2",b\nc,d\n'
+	records := vsqlite.parse_csv_records(content, `,`)
+	assert records.len == 2
+	assert records[0][0] == 'line1\nline2'
+	assert records[0][1] == 'b'
+	assert records[1][0] == 'c'
+	assert records[1][1] == 'd'
+}
+
+fn test_parse_csv_records_blank_lines_skipped() {
+	records := vsqlite.parse_csv_records('a,b\n\n1,2\n\n', `,`)
+	assert records.len == 2
+}
+
+fn test_parse_csv_records_no_trailing_newline() {
+	records := vsqlite.parse_csv_records('a,b\n1,2', `,`)
+	assert records.len == 2
+	assert records[1] == ['1', '2']
+}
+
+fn test_parse_csv_records_tab_sep() {
+	records := vsqlite.parse_csv_records("id\tname\n1\tAlice\n", `\t`)
+	assert records.len == 2
+	assert records[0] == ['id', 'name']
+	assert records[1] == ['1', 'Alice']
+}
+
+fn test_parse_csv_line_sep_pipe() {
+	assert vsqlite.parse_csv_line_sep('a|b|c', `|`) == ['a', 'b', 'c']
+}
+
+fn test_parse_csv_line_sep_tab() {
+	assert vsqlite.parse_csv_line_sep('a\tb\tc', `\t`) == ['a', 'b', 'c']
+}
+
+fn test_read_csv_sep_tsv() {
+	tmp := os.join_path(os.temp_dir(), 'vsqlite_test_tsv.tsv')
+	os.write_file(tmp, "id\tname\n1\tAlice\n2\tBob\n") or { panic(err) }
+	defer {
+		os.rm(tmp) or {}
+	}
+	headers, rows := vsqlite.read_tsv(tmp) or { panic(err) }
+	assert headers == ['id', 'name']
+	assert rows.len == 2
+	assert rows[0][1] == 'Alice'
+	assert rows[1][1] == 'Bob'
+}
+
+fn test_read_csv_quoted_comma() {
+	tmp := os.join_path(os.temp_dir(), 'vsqlite_test_qc.csv')
+	os.write_file(tmp, 'name,note\nAlice,"hello, world"\n') or { panic(err) }
+	defer {
+		os.rm(tmp) or {}
+	}
+	headers, rows := vsqlite.read_csv(tmp) or { panic(err) }
+	assert headers == ['name', 'note']
+	assert rows[0][1] == 'hello, world'
 }

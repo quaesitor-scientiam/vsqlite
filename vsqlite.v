@@ -134,6 +134,71 @@ pub fn (mut db DB) exec_none_params(stmt string, params []string) {
 	db.conn.exec_param_many(stmt, params) or {}
 }
 
+// dump generates a SQL script that recreates the entire database schema and
+// data.  The script is wrapped in a BEGIN/COMMIT transaction.
+// Tables are emitted first (DDL then INSERTs), followed by indexes, views,
+// and triggers.  Because the V SQLite binding cannot distinguish NULL from an
+// empty string, empty column values are written as NULL.
+pub fn (mut db DB) dump() string {
+	mut lines := []string{}
+	lines << 'BEGIN TRANSACTION;'
+	lines << ''
+	schema_rows := db.conn.exec("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name") or {
+		lines << 'COMMIT;'
+		return lines.join('\n')
+	}
+	// Tables: emit DDL then INSERT statements for every row
+	for row in schema_rows {
+		if row.vals[0] != 'table' {
+			continue
+		}
+		obj_name := row.vals[1]
+		escaped  := obj_name.replace('"', '""')
+		lines << row.vals[2] + ';'
+		col_rows := db.conn.exec('PRAGMA table_info("${escaped}")') or { continue }
+		if col_rows.len == 0 {
+			lines << ''
+			continue
+		}
+		col_names := col_rows.map(it.vals[1])
+		col_list  := col_names.map('"${it.replace('"', '""')}"').join(', ')
+		data_rows := db.conn.exec('SELECT * FROM "${escaped}"') or { continue }
+		for drow in data_rows {
+			mut vals := []string{}
+			for v in drow.vals {
+				if v == '' {
+					vals << 'NULL'
+				} else {
+					vals << "'${v.replace("'", "''")}'"
+				}
+			}
+			lines << 'INSERT INTO "${escaped}"(${col_list}) VALUES(${vals.join(', ')});'
+		}
+		lines << ''
+	}
+	// Non-table objects: indexes, views, triggers
+	for row in schema_rows {
+		if row.vals[0] == 'table' {
+			continue
+		}
+		lines << row.vals[2] + ';'
+		lines << ''
+	}
+	lines << 'COMMIT;'
+	return lines.join('\n')
+}
+
+// load_extension loads a SQLite extension from a shared library at path.
+// entry_point is the init function name; pass '' to use the default
+// (SQLite derives it from the filename).
+// Requires SQLite compiled with SQLITE_ENABLE_LOAD_EXTENSION.
+pub fn (mut db DB) load_extension(path string, entry_point string) ! {
+	ep := if entry_point != '' { ", '${entry_point.replace("'", "''")}'" } else { '' }
+	_ = db.conn.exec("SELECT load_extension('${path.replace("'", "''")}' ${ep})") or {
+		return error(err.msg())
+	}
+}
+
 // column_names resolves column names for a SELECT statement.
 // For SELECT *, it falls back to PRAGMA table_info.
 fn (mut db DB) column_names(stmt string) []string {

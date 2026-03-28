@@ -41,9 +41,9 @@
 - ~~Proper multi-statement input (`;` separated, across lines)~~ — **implemented**; `split_statements` splits on `;` respecting quoted strings; both interactive REPL and `-f` file mode execute each statement individually
 
 ### Import/Export
-- `.dump` — full SQL dump of the database
-- `.load <ext>` — load extensions (.so/.dylib)
-- Proper CSV/TSV import with quoting edge cases
+- ~~`.dump` — full SQL dump of the database~~ — **implemented**; `.dump [file]` generates a `BEGIN/COMMIT`-wrapped SQL script (DDL + INSERTs) to stdout or a file
+- ~~`.load <ext>` — load extensions (.so/.dylib)~~ — **implemented**; `.load <file> [entry-point]` calls SQLite's `load_extension()` SQL function (requires `SQLITE_ENABLE_LOAD_EXTENSION` in the linked libsqlite3)
+- ~~Proper CSV/TSV import with quoting edge cases~~ — **implemented**; `parse_csv_records` is now content-based (handles embedded newlines in quoted fields, CRLF, bare CR); `read_tsv` / `read_csv_sep` added; `.import` auto-detects `.tsv`/`.tab` files
 
 ### Meta
 - `.bail on` — stop on first error
@@ -56,6 +56,6 @@
 
 ## Summary
 
-vsqlite is roughly a ~75% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion), output richness (all major modes, `.width`, `.nullvalue`, `.separator`, `.output`/`.once`), and SQL execution extras (prepared statements, `.timer`, `.explain`, multi-statement input) are now largely on par. The biggest remaining gaps are **import/export completeness** (`.dump`, `.load` extensions, robust CSV edge cases) and **session control** (`.bail on`, `.echo on`, `.log`, `.changes`, `ATTACH`). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is small.
+vsqlite is roughly a ~85% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion), output richness (all major modes, `.width`, `.nullvalue`, `.separator`, `.output`/`.once`), SQL execution extras (prepared statements, `.timer`, `.explain`, multi-statement input), and import/export (`.dump`, `.load`, robust CSV/TSV with embedded newlines and CRLF) are now largely on par. The remaining gap is **session control** (`.bail on`, `.echo on`, `.log`, `.changes`, `ATTACH`/`.open`). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is small.
 
 The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~1200 lines of V.

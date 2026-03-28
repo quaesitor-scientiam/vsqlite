@@ -30,8 +30,10 @@ Interactive mode commands:
   .once <file>                     Redirect next query result to file
   .timer [on|off]                  Toggle query execution timing (default: off)
   .explain <stmt>                  Show EXPLAIN QUERY PLAN tree for a statement
-  .import <file> <table>           Import CSV into table
+  .import <file> <table>           Import CSV/TSV into table (auto-detects .tsv/.tab)
   .export <file>                   Export last query to CSV
+  .dump [file]                     Dump full SQL schema+data to stdout or file
+  .load <file> [entry]             Load a SQLite extension (.so/.dylib)
   .databases                       List attached databases
   .indexes [table]                 List indexes
   .size                            Show database file size
@@ -444,6 +446,30 @@ fn (mut app App) dot_cmd(cmd string) {
 			}
 			println('Exported ${app.last_rows.len} rows to ${parts[1]}')
 		}
+		'.dump' {
+			text := app.db.dump()
+			if parts.len > 1 {
+				os.write_file(parts[1], text) or {
+					eprintln('Error: cannot write "${parts[1]}": ${err}')
+					return
+				}
+				println('Dumped to ${parts[1]}')
+			} else {
+				println(text)
+			}
+		}
+		'.load' {
+			if parts.len < 2 {
+				eprintln('Usage: .load <file> [entry-point]')
+				return
+			}
+			entry := if parts.len > 2 { parts[2] } else { '' }
+			app.db.load_extension(parts[1], entry) or {
+				eprintln('Error: ${err}')
+				return
+			}
+			println('Extension loaded: ${parts[1]}')
+		}
 		'.databases' {
 			rows := app.db.exec('PRAGMA database_list') or { return }
 			for row in rows {
@@ -473,7 +499,9 @@ fn (mut app App) dot_cmd(cmd string) {
 }
 
 fn (mut app App) import_csv(file string, table string) {
-	headers, rows := vsqlite.read_csv(file) or {
+	// Auto-detect separator: .tsv and .tab files use tab; everything else uses comma
+	sep := if file.ends_with('.tsv') || file.ends_with('.tab') { u8(`\t`) } else { u8(`,`) }
+	headers, rows := vsqlite.read_csv_sep(file, sep) or {
 		eprintln('Error: ${err}')
 		return
 	}
@@ -492,7 +520,7 @@ fn (mut app App) import_csv(file string, table string) {
 fn (mut app App) refresh_completions() {
 	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.nullvalue', '.separator',
 		'.width', '.output', '.once', '.timer', '.explain', '.import', '.export',
-		'.databases', '.indexes', '.size', '.help', '.quit', '.exit']
+		'.dump', '.load', '.databases', '.indexes', '.size', '.help', '.quit', '.exit']
 	kws := ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE',
 		'CREATE', 'TABLE', 'DROP', 'ALTER', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
 		'ON', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT',

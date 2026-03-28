@@ -67,8 +67,10 @@ printf ".mode csv\nSELECT * FROM users\n" | ./vsqlite mydb.sqlite > out.csv
 | `.once <file>` | Redirect the **next** query result only to *file*, then resume stdout |
 | `.timer [on\|off]` | Toggle execution timing; prints elapsed time after each statement |
 | `.explain <stmt>` | Show `EXPLAIN QUERY PLAN` as an indented tree for *stmt* |
-| `.import <file> <table>` | Import a CSV file into a table |
+| `.import <file> <table>` | Import a CSV or TSV file into a table (`.tsv`/`.tab` auto-detected) |
 | `.export <file>` | Export the last query result to CSV |
+| `.dump [file]` | Dump full SQL schema + data to stdout, or to *file* |
+| `.load <file> [entry]` | Load a SQLite extension (`.so`/`.dylib`) |
 | `.indexes [table]` | List indexes |
 | `.databases` | List attached databases |
 | `.size` | Show database file size |
@@ -262,11 +264,42 @@ println(vsqlite.format(rows, .csv,   true))  // CSV with headers
 println(vsqlite.format(rows, .line,  true))  // line format
 ```
 
+### Database dump
+
+```v
+// Full SQL script (schema + data) as a string
+script := db.dump()
+os.write_file('backup.sql', script)!
+```
+
+The dump is wrapped in `BEGIN TRANSACTION` / `COMMIT` and can be piped straight back into vsqlite or `sqlite3` to recreate the database.
+
+### Loading extensions
+
+```v
+db.load_extension('/usr/lib/sqlite3/pcre.so', '')!   // default entry point
+db.load_extension('mod.so', 'sqlite3_mod_init')!     // explicit entry point
+```
+
+Requires the linked `libsqlite3` to be compiled with `SQLITE_ENABLE_LOAD_EXTENSION`.
+
 ### CSV utilities
 
 ```v
-// Read a CSV file
+// Read a CSV file (comma-separated)
 headers, rows := vsqlite.read_csv('data.csv')!
+
+// Read a TSV file (tab-separated)
+headers, rows := vsqlite.read_tsv('data.tsv')!
+
+// Read with a custom separator
+headers, rows := vsqlite.read_csv_sep('data.psv', `|`)!
+
+// Parse a full CSV content string into records
+records := vsqlite.parse_csv_records(content, `,`)  // handles embedded newlines, CRLF
+
+// Parse a single line with a custom separator
+fields := vsqlite.parse_csv_line_sep('a|b|c', `|`)  // ['a', 'b', 'c']
 
 // Write query results to CSV
 vsqlite.write_csv('out.csv', rows, true)!

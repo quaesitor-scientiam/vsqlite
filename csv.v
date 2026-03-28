@@ -2,24 +2,31 @@ module vsqlite
 
 import os
 
-// read_csv reads a CSV file and returns rows as string arrays.
-// The first row is treated as headers.
+// read_csv reads a CSV file (comma-separated) and returns (headers, data_rows).
+// The first row is treated as the header row.  Handles RFC 4180 quoting,
+// embedded newlines in quoted fields, and CRLF line endings.
 pub fn read_csv(path string) !([]string, [][]string) {
+	return read_csv_sep(path, `,`)
+}
+
+// read_tsv reads a TSV (tab-separated) file and returns (headers, data_rows).
+pub fn read_tsv(path string) !([]string, [][]string) {
+	return read_csv_sep(path, `\t`)
+}
+
+// read_csv_sep reads a delimited file with sep as the field separator and
+// returns (headers, data_rows).  Handles RFC 4180 quoting, embedded newlines
+// in quoted fields, and CRLF line endings.
+pub fn read_csv_sep(path string, sep u8) !([]string, [][]string) {
 	content := os.read_file(path)!
-	lines := content.split_into_lines()
-	if lines.len == 0 {
+	if content.len == 0 {
+		return error('file is empty')
+	}
+	records := parse_csv_records(content, sep)
+	if records.len == 0 {
 		return error('CSV file is empty')
 	}
-	headers := parse_csv_line(lines[0])
-	mut rows := [][]string{}
-	for line in lines[1..] {
-		trimmed := line.trim_space()
-		if trimmed == '' {
-			continue
-		}
-		rows << parse_csv_line(trimmed)
-	}
-	return headers, rows
+	return records[0], records[1..]
 }
 
 // write_csv writes rows to a CSV file.
@@ -39,7 +46,8 @@ pub fn csv_escape(s string) string {
 	return csv_escape_sep(s, ',')
 }
 
-// csv_escape_sep quotes a field if it contains the separator, a double-quote, or a newline.
+// csv_escape_sep quotes a field if it contains the separator, a double-quote,
+// or a newline.
 fn csv_escape_sep(s string, sep string) string {
 	if s.contains(sep) || s.contains('"') || s.contains('\n') {
 		return '"' + s.replace('"', '""') + '"'
@@ -47,7 +55,13 @@ fn csv_escape_sep(s string, sep string) string {
 	return s
 }
 
+// parse_csv_line parses a single CSV line (comma separator).
 pub fn parse_csv_line(line string) []string {
+	return parse_csv_line_sep(line, `,`)
+}
+
+// parse_csv_line_sep parses a single delimited line with a custom separator byte.
+pub fn parse_csv_line_sep(line string, sep u8) []string {
 	mut fields := []string{}
 	mut field := ''
 	mut in_quotes := false
@@ -70,7 +84,7 @@ pub fn parse_csv_line(line string) []string {
 		} else {
 			if c == `"` {
 				in_quotes = true
-			} else if c == `,` {
+			} else if c == sep {
 				fields << field
 				field = ''
 			} else {
@@ -81,4 +95,73 @@ pub fn parse_csv_line(line string) []string {
 	}
 	fields << field
 	return fields
+}
+
+// parse_csv_records parses a full CSV/TSV content string into a slice of records.
+// sep is the field separator byte.  Handles:
+//   - RFC 4180 double-quote escaping ("" inside a quoted field)
+//   - Embedded newlines inside quoted fields
+//   - CRLF (\r\n) and bare CR (\r) line endings
+//   - Blank lines (skipped)
+pub fn parse_csv_records(content string, sep u8) [][]string {
+	mut records := [][]string{}
+	mut record := []string{}
+	mut field := ''
+	mut in_quotes := false
+	mut i := 0
+	bytes := content.bytes()
+	for i < bytes.len {
+		c := bytes[i]
+		if in_quotes {
+			if c == `"` {
+				if i + 1 < bytes.len && bytes[i + 1] == `"` {
+					// Escaped double-quote inside quoted field
+					field += '"'
+					i += 2
+					continue
+				}
+				in_quotes = false
+			} else {
+				// Any character — including embedded newlines — belongs to the field
+				field += c.ascii_str()
+			}
+		} else {
+			if c == `"` {
+				in_quotes = true
+			} else if c == sep {
+				record << field
+				field = ''
+			} else if c == `\r` {
+				// CRLF: absorb the following \n so it isn't processed again
+				if i + 1 < bytes.len && bytes[i + 1] == `\n` {
+					i++
+				}
+				record << field
+				field = ''
+				// Skip blank lines (a single empty-string field)
+				if record.len > 1 || (record.len == 1 && record[0] != '') {
+					records << record
+				}
+				record = []string{}
+			} else if c == `\n` {
+				record << field
+				field = ''
+				if record.len > 1 || (record.len == 1 && record[0] != '') {
+					records << record
+				}
+				record = []string{}
+			} else {
+				field += c.ascii_str()
+			}
+		}
+		i++
+	}
+	// Final record when file does not end with a newline
+	if field.len > 0 || record.len > 0 {
+		record << field
+		if record.len > 1 || (record.len == 1 && record[0] != '') {
+			records << record
+		}
+	}
+	return records
 }
