@@ -76,6 +76,7 @@ fn (mut app App) interactive_mode() {
 	println('')
 	app.rl.skip_empty = true
 	app.load_history()
+	app.refresh_completions()
 	mut buf := []string{}
 	for {
 		prompt := if buf.len == 0 { 'vsqlite> ' } else { '     ...> ' }
@@ -167,6 +168,11 @@ fn (mut app App) run(stmt string) {
 			println('${affected} row${if affected == 1 { '' } else { 's' }} affected')
 		} else {
 			println('OK')
+		}
+		// Schema may have changed — rebuild completions.
+		if upper.starts_with('CREATE') || upper.starts_with('DROP')
+			|| upper.starts_with('ALTER') {
+			app.refresh_completions()
 		}
 	}
 }
@@ -298,6 +304,72 @@ fn (mut app App) import_csv(file string, table string) {
 	}
 	app.db.exec_none('COMMIT')
 	println('Imported ${rows.len} rows into ${table}')
+}
+
+// refresh_completions rebuilds the readline completion callback from the
+// current schema.  Call once at startup and again after any DDL statement.
+fn (mut app App) refresh_completions() {
+	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.import', '.export',
+		'.databases', '.indexes', '.size', '.help', '.quit', '.exit']
+	kws := ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE',
+		'CREATE', 'TABLE', 'DROP', 'ALTER', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
+		'ON', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT',
+		'NULL', 'VALUES', 'PRIMARY', 'KEY', 'INTEGER', 'TEXT', 'REAL', 'BLOB', 'UNIQUE',
+		'DEFAULT', 'AUTOINCREMENT', 'PRAGMA', 'INDEX', 'DISTINCT', 'COUNT', 'SUM', 'MIN',
+		'MAX', 'AVG', 'AS', 'LIKE', 'IN', 'IS', 'BETWEEN', 'CASE', 'WHEN', 'THEN',
+		'ELSE', 'END', 'BEGIN', 'TRANSACTION', 'COMMIT', 'ROLLBACK']
+	mut words := []string{}
+	words << dot_cmds
+	words << kws
+	tables := app.db.tables()
+	words << tables
+	for t in tables {
+		words << app.db.columns(t)
+	}
+	app.rl.completion_callback = make_completer(words)
+}
+
+// make_completer returns a readline completion_callback that completes the
+// last SQL token on the current line against words.
+// Because readline replaces r.current with the returned string, each result
+// is the full line with the matched word substituted for the last token.
+fn make_completer(words []string) fn (string) []string {
+	return fn [words](line string) []string {
+		if line.len == 0 {
+			return []string{}
+		}
+		// Dot command (no space yet): complete the whole command name.
+		if line.starts_with('.') && !line.contains(' ') {
+			return words.filter(it.starts_with(line))
+		}
+		// Split off the last token so we can replace it with completions.
+		tok_start := last_token_start(line)
+		pre := line[..tok_start]
+		tok := line[tok_start..]
+		if tok.len == 0 {
+			return []string{}
+		}
+		tok_upper := tok.to_upper()
+		mut results := []string{}
+		for w in words {
+			if w.to_upper().starts_with(tok_upper) {
+				results << pre + w
+			}
+		}
+		return results
+	}
+}
+
+// last_token_start returns the byte offset in line where the last SQL token
+// begins.  Tokens are delimited by spaces, tabs, '(' and ','.
+fn last_token_start(line string) int {
+	for i := line.len - 1; i >= 0; i-- {
+		b := line[i]
+		if b == 32 || b == 9 || b == 40 || b == 44 { // ' '  '\t'  '('  ','
+			return i + 1
+		}
+	}
+	return 0
 }
 
 fn format_bytes(n i64) string {

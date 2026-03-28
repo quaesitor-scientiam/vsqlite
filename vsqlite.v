@@ -108,6 +108,12 @@ pub fn (mut db DB) size() i64 {
 	return rows_pc[0].vals[0].i64() * rows_ps[0].vals[0].i64()
 }
 
+// columns returns the column names for a table.
+pub fn (mut db DB) columns(table string) []string {
+	rows := db.conn.exec('PRAGMA table_info(${table})') or { return []string{} }
+	return rows.map(it.vals[1])
+}
+
 // column_names resolves column names for a SELECT statement.
 // For SELECT *, it falls back to PRAGMA table_info.
 fn (mut db DB) column_names(stmt string) []string {

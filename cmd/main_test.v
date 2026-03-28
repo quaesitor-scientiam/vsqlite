@@ -102,6 +102,100 @@ fn test_history_save_empty_history() {
 	assert content.trim_space() == ''
 }
 
+// --- last_token_start ---
+
+fn test_last_token_start_whole_word() {
+	assert last_token_start('SELECT') == 0
+}
+
+fn test_last_token_start_after_space() {
+	// 'SELECT * FROM ' — last space at index 13, token starts at 14
+	assert last_token_start('SELECT * FROM ') == 14
+}
+
+fn test_last_token_start_partial_token() {
+	// 'SELECT * FROM u' — space at 13, token 'u' starts at 14
+	assert last_token_start('SELECT * FROM u') == 14
+}
+
+fn test_last_token_start_after_paren() {
+	// 'INSERT INTO t(' — '(' at 13, token starts at 14
+	assert last_token_start('INSERT INTO t(') == 14
+}
+
+fn test_last_token_start_after_comma() {
+	// 'SELECT id,na' — ',' at 9, token starts at 10
+	assert last_token_start('SELECT id,na') == 10
+}
+
+fn test_last_token_start_empty() {
+	assert last_token_start('') == 0
+}
+
+// --- make_completer ---
+
+fn test_complete_keyword_prefix() {
+	cb := make_completer(['SELECT', 'SET', 'FROM', 'WHERE'])
+	results := cb('SE')
+	assert 'SELECT' in results
+	assert 'SET' in results
+	assert 'FROM' !in results
+}
+
+fn test_complete_keyword_case_insensitive() {
+	cb := make_completer(['SELECT', 'FROM'])
+	results := cb('sel')
+	assert 'SELECT' in results
+}
+
+fn test_complete_mid_line_table_name() {
+	cb := make_completer(['SELECT', 'FROM', 'users', 'products'])
+	results := cb('SELECT * FROM u')
+	assert 'SELECT * FROM users' in results
+	assert 'SELECT * FROM products' !in results
+}
+
+fn test_complete_after_comma() {
+	cb := make_completer(['id', 'name', 'age', 'SELECT'])
+	results := cb('SELECT id,na')
+	assert 'SELECT id,name' in results
+	assert 'SELECT id,age' !in results
+}
+
+fn test_complete_dot_command() {
+	cb := make_completer(['.tables', '.schema', '.mode', 'SELECT'])
+	results := cb('.tab')
+	assert '.tables' in results
+	assert '.schema' !in results
+	assert 'SELECT' !in results
+}
+
+fn test_complete_dot_command_with_space_not_treated_as_dot() {
+	// '.mode ' has a space — last token is '', so no results
+	cb := make_completer(['.tables', '.mode'])
+	results := cb('.mode ')
+	assert results == []string{}
+}
+
+fn test_complete_empty_line_returns_nothing() {
+	cb := make_completer(['SELECT', 'FROM'])
+	assert cb('') == []string{}
+}
+
+fn test_complete_no_match_returns_nothing() {
+	cb := make_completer(['SELECT', 'FROM'])
+	assert cb('ZZZ') == []string{}
+}
+
+fn test_complete_full_replacement() {
+	// Verifies each result is a full line, not just the matched word
+	cb := make_completer(['users', 'products'])
+	results := cb('SELECT * FROM u')
+	for r in results {
+		assert r.starts_with('SELECT * FROM ')
+	}
+}
+
 // --- stmt_complete ---
 
 fn test_stmt_complete_single_line_with_semicolon() {

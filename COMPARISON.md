@@ -15,7 +15,7 @@
 ### Shell quality
 - ~~Readline/libedit: history (↑↓), Ctrl+R search, cursor movement~~ — **implemented** via V's `readline` module; history persisted to `~/.vsqlite_history`
 - ~~Multi-line statement editing (sqlite3 waits for `;` before executing)~~ — **implemented**; continuation prompt `...>` shown until `;` is entered
-- Tab completion for table/column names
+- ~~Tab completion for table/column names~~ — **implemented**; Tab completes SQL keywords, table names, column names, and dot commands; list refreshes after DDL
 
 ### Output
 - `.width` — set per-column widths
@@ -46,6 +46,6 @@
 
 ## Summary
 
-vsqlite is roughly a ~30% feature implementation of sqlite3. The biggest remaining practical gap is **tab completion** (table/column name hints). Multi-line input and readline support (history, cursor movement, Ctrl+R search) are now on par with sqlite3. For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller.
+vsqlite is roughly a ~35% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion) is now on par with sqlite3. The biggest remaining gaps are in **output richness** (`.width`, box/markdown/json modes, `.output`) and **import/export completeness** (`.dump`, extensions). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller.
 
 The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~500 lines of V.

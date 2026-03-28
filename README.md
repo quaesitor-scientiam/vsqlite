@@ -96,6 +96,18 @@ The interactive REPL uses V's built-in `readline` module for a full line-editing
 
 History is persisted to `~/.vsqlite_history` across sessions.
 
+### Tab completion
+
+Press **Tab** to complete the current token against SQL keywords, table names, column names, and dot commands:
+
+```
+vsqlite> SELECT * FROM us<TAB>  →  SELECT * FROM users
+vsqlite> .tab<TAB>              →  .tables
+vsqlite> SEL<TAB>               →  SELECT
+```
+
+Press Tab again to cycle through additional matches. The completion list is refreshed automatically after `CREATE`, `DROP`, and `ALTER` statements.
+
 ### Output modes
 
 **table** (default) — aligned ASCII table with bold headers

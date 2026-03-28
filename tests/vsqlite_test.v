@@ -157,6 +157,17 @@ fn test_size() {
 	assert db.size() > 0
 }
 
+fn test_columns() {
+	mut db := setup()
+	cols := db.columns('users')
+	assert cols == ['id', 'name', 'age']
+}
+
+fn test_columns_unknown_table() {
+	mut db := setup()
+	assert db.columns('no_such_table') == []string{}
+}
+
 // --- Formatting ---
 
 fn test_format_table() {
