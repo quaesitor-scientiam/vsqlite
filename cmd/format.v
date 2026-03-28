@@ -1,4 +1,4 @@
-module vsqlite
+module main
 
 import term
 
@@ -26,7 +26,6 @@ pub:
 }
 
 // format renders rows using mode and headers with default options.
-// Kept for backward compatibility.
 pub fn format(rows []Row, mode OutputMode, headers bool) string {
 	return format_opts(rows, FormatOptions{
 		mode:    mode
@@ -49,24 +48,6 @@ pub fn format_opts(rows []Row, opts FormatOptions) string {
 	}
 }
 
-// format_table renders rows as an ASCII table with optional bold headers.
-// Kept for backward compatibility.
-pub fn format_table(rows []Row, headers bool) string {
-	return format_table_ex(rows, FormatOptions{ mode: .table, headers: headers })
-}
-
-// format_csv renders rows as RFC 4180 CSV.
-// Kept for backward compatibility.
-pub fn format_csv(rows []Row, headers bool) string {
-	return format_csv_ex(rows, FormatOptions{ mode: .csv, headers: headers })
-}
-
-// format_line renders each column on its own line, useful for wide rows.
-// Kept for backward compatibility.
-pub fn format_line(rows []Row) string {
-	return format_line_ex(rows, FormatOptions{ mode: .line })
-}
-
 // ---------- internal helpers ----------
 
 fn eff_width(opts FormatOptions, i int, auto_w int) int {
@@ -79,11 +60,6 @@ fn eff_width(opts FormatOptions, i int, auto_w int) int {
 
 fn null_disp(s string, nullvalue string) string {
 	return if s == '' { nullvalue } else { s }
-}
-
-// null_str retained for any internal callers that predate FormatOptions.
-fn null_str(s string) string {
-	return if s == '' { 'NULL' } else { s }
 }
 
 fn resolve_cols(cols []string, ncols int) []string {

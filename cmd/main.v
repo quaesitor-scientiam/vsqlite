@@ -3,7 +3,6 @@ module main
 import os
 import readline
 import time
-import vsqlite
 
 const version = '0.1.0'
 
@@ -48,11 +47,11 @@ const history_file = os.join_path(os.home_dir(), '.vsqlite_history')
 
 struct App {
 mut:
-	db           vsqlite.DB
+	db           DB
 	rl           readline.Readline
-	mode         vsqlite.OutputMode = .table
+	mode         OutputMode = .table
 	headers      bool               = true
-	last_rows    []vsqlite.Row
+	last_rows    []Row
 	nullvalue    string             = 'NULL'
 	separator    string             = ','
 	col_widths   map[int]int
@@ -80,7 +79,7 @@ fn main() {
 	}
 
 	mut app := App{
-		db: vsqlite.connect(args[0]) or {
+		db: connect(args[0]) or {
 			eprintln('Error: cannot open "${args[0]}": ${err}')
 			exit(1)
 		}
@@ -172,8 +171,8 @@ fn history_save(rl readline.Readline, path string) {
 }
 
 // make_format_opts builds a FormatOptions from the current App settings.
-fn (app App) make_format_opts() vsqlite.FormatOptions {
-	return vsqlite.FormatOptions{
+fn (app App) make_format_opts() FormatOptions {
+	return FormatOptions{
 		mode:       app.mode
 		headers:    app.headers
 		nullvalue:  app.nullvalue
@@ -241,7 +240,7 @@ fn (mut app App) run(stmt string) bool {
 			return true
 		}
 		app.last_rows = rows
-		app.write_out(vsqlite.format_opts(rows, app.make_format_opts()))
+		app.write_out(format_opts(rows, app.make_format_opts()))
 		app.write_out('(${rows.len} row${if rows.len == 1 { '' } else { 's' }})')
 		app.finish_output()
 		if app.timer {
@@ -469,7 +468,7 @@ fn (mut app App) dot_cmd(cmd string) {
 				eprintln('No previous query results to export')
 				return
 			}
-			vsqlite.write_csv(parts[1], app.last_rows, app.headers) or {
+			write_csv(parts[1], app.last_rows, app.headers) or {
 				eprintln('Error: ${err}')
 				return
 			}
@@ -554,7 +553,7 @@ fn (mut app App) dot_cmd(cmd string) {
 				eprintln('Usage: .open <database-file>')
 				return
 			}
-			new_db := vsqlite.connect(parts[1]) or {
+			new_db := connect(parts[1]) or {
 				eprintln('Error: cannot open "${parts[1]}": ${err}')
 				return
 			}
@@ -593,7 +592,7 @@ fn (mut app App) dot_cmd(cmd string) {
 fn (mut app App) import_csv(file string, table string) {
 	// Auto-detect separator: .tsv and .tab files use tab; everything else uses comma
 	sep := if file.ends_with('.tsv') || file.ends_with('.tab') { u8(`\t`) } else { u8(`,`) }
-	headers, rows := vsqlite.read_csv_sep(file, sep) or {
+	headers, rows := read_csv_sep(file, sep) or {
 		eprintln('Error: ${err}')
 		return
 	}
@@ -751,7 +750,7 @@ fn (mut app App) run_explain(stmt string) {
 
 // print_eqp_tree recursively prints EXPLAIN QUERY PLAN rows as an indented tree.
 // EXPLAIN QUERY PLAN columns (by index): 0=id, 1=parent, 2=notused, 3=detail
-fn (mut app App) print_eqp_tree(rows []vsqlite.Row, parent_id int, depth int) {
+fn (mut app App) print_eqp_tree(rows []Row, parent_id int, depth int) {
 	indent := '  '.repeat(depth)
 	for row in rows {
 		if row.vals.len < 4 {

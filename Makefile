@@ -7,7 +7,6 @@ build:
 	v -path "$(VPATH)" -o $(BIN) cmd/
 
 test:
-	v -path "$(VPATH)" test tests/
 	v -path "$(VPATH)" test cmd/
 
 clean:

@@ -1,4 +1,4 @@
-module vsqlite
+module main
 
 import db.sqlite
 
@@ -115,7 +115,6 @@ pub fn (mut db DB) columns(table string) []string {
 }
 
 // exec_params runs a parameterized query with ? placeholders and returns rows.
-// Example: db.exec_params('SELECT * FROM users WHERE id = ?', ['1'])!
 pub fn (mut db DB) exec_params(stmt string, params []string) ![]Row {
 	raw := db.conn.exec_param_many(stmt, params)!
 	if raw.len == 0 {
@@ -129,16 +128,11 @@ pub fn (mut db DB) exec_params(stmt string, params []string) ![]Row {
 }
 
 // exec_none_params runs a parameterized DML/DDL statement with ? placeholders.
-// Example: db.exec_none_params('INSERT INTO t VALUES (?, ?)', ['1', 'Alice'])
 pub fn (mut db DB) exec_none_params(stmt string, params []string) {
 	db.conn.exec_param_many(stmt, params) or {}
 }
 
-// dump generates a SQL script that recreates the entire database schema and
-// data.  The script is wrapped in a BEGIN/COMMIT transaction.
-// Tables are emitted first (DDL then INSERTs), followed by indexes, views,
-// and triggers.  Because the V SQLite binding cannot distinguish NULL from an
-// empty string, empty column values are written as NULL.
+// dump generates a SQL script that recreates the entire database schema and data.
 pub fn (mut db DB) dump() string {
 	mut lines := []string{}
 	lines << 'BEGIN TRANSACTION;'
@@ -147,7 +141,6 @@ pub fn (mut db DB) dump() string {
 		lines << 'COMMIT;'
 		return lines.join('\n')
 	}
-	// Tables: emit DDL then INSERT statements for every row
 	for row in schema_rows {
 		if row.vals[0] != 'table' {
 			continue
@@ -176,7 +169,6 @@ pub fn (mut db DB) dump() string {
 		}
 		lines << ''
 	}
-	// Non-table objects: indexes, views, triggers
 	for row in schema_rows {
 		if row.vals[0] == 'table' {
 			continue
@@ -189,9 +181,6 @@ pub fn (mut db DB) dump() string {
 }
 
 // load_extension loads a SQLite extension from a shared library at path.
-// entry_point is the init function name; pass '' to use the default
-// (SQLite derives it from the filename).
-// Requires SQLite compiled with SQLITE_ENABLE_LOAD_EXTENSION.
 pub fn (mut db DB) load_extension(path string, entry_point string) ! {
 	ep := if entry_point != '' { ", '${entry_point.replace("'", "''")}'" } else { '' }
 	_ = db.conn.exec("SELECT load_extension('${path.replace("'", "''")}' ${ep})") or {
@@ -200,7 +189,6 @@ pub fn (mut db DB) load_extension(path string, entry_point string) ! {
 }
 
 // column_names resolves column names for a SELECT statement.
-// For SELECT *, it falls back to PRAGMA table_info.
 fn (mut db DB) column_names(stmt string) []string {
 	upper := stmt.trim_space().to_upper()
 	if !upper.starts_with('SELECT') {

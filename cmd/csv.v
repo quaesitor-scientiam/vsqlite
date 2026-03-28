@@ -1,10 +1,8 @@
-module vsqlite
+module main
 
 import os
 
 // read_csv reads a CSV file (comma-separated) and returns (headers, data_rows).
-// The first row is treated as the header row.  Handles RFC 4180 quoting,
-// embedded newlines in quoted fields, and CRLF line endings.
 pub fn read_csv(path string) !([]string, [][]string) {
 	return read_csv_sep(path, `,`)
 }
@@ -14,9 +12,7 @@ pub fn read_tsv(path string) !([]string, [][]string) {
 	return read_csv_sep(path, `\t`)
 }
 
-// read_csv_sep reads a delimited file with sep as the field separator and
-// returns (headers, data_rows).  Handles RFC 4180 quoting, embedded newlines
-// in quoted fields, and CRLF line endings.
+// read_csv_sep reads a delimited file with sep as the field separator.
 pub fn read_csv_sep(path string, sep u8) !([]string, [][]string) {
 	content := os.read_file(path)!
 	if content.len == 0 {
@@ -46,8 +42,7 @@ pub fn csv_escape(s string) string {
 	return csv_escape_sep(s, ',')
 }
 
-// csv_escape_sep quotes a field if it contains the separator, a double-quote,
-// or a newline.
+// csv_escape_sep quotes a field if it contains the separator, a double-quote, or a newline.
 fn csv_escape_sep(s string, sep string) string {
 	if s.contains(sep) || s.contains('"') || s.contains('\n') {
 		return '"' + s.replace('"', '""') + '"'
@@ -98,11 +93,6 @@ pub fn parse_csv_line_sep(line string, sep u8) []string {
 }
 
 // parse_csv_records parses a full CSV/TSV content string into a slice of records.
-// sep is the field separator byte.  Handles:
-//   - RFC 4180 double-quote escaping ("" inside a quoted field)
-//   - Embedded newlines inside quoted fields
-//   - CRLF (\r\n) and bare CR (\r) line endings
-//   - Blank lines (skipped)
 pub fn parse_csv_records(content string, sep u8) [][]string {
 	mut records := [][]string{}
 	mut record := []string{}
@@ -115,14 +105,12 @@ pub fn parse_csv_records(content string, sep u8) [][]string {
 		if in_quotes {
 			if c == `"` {
 				if i + 1 < bytes.len && bytes[i + 1] == `"` {
-					// Escaped double-quote inside quoted field
 					field += '"'
 					i += 2
 					continue
 				}
 				in_quotes = false
 			} else {
-				// Any character — including embedded newlines — belongs to the field
 				field += c.ascii_str()
 			}
 		} else {
@@ -132,13 +120,11 @@ pub fn parse_csv_records(content string, sep u8) [][]string {
 				record << field
 				field = ''
 			} else if c == `\r` {
-				// CRLF: absorb the following \n so it isn't processed again
 				if i + 1 < bytes.len && bytes[i + 1] == `\n` {
 					i++
 				}
 				record << field
 				field = ''
-				// Skip blank lines (a single empty-string field)
 				if record.len > 1 || (record.len == 1 && record[0] != '') {
 					records << record
 				}
@@ -156,7 +142,6 @@ pub fn parse_csv_records(content string, sep u8) [][]string {
 		}
 		i++
 	}
-	// Final record when file does not end with a newline
 	if field.len > 0 || record.len > 0 {
 		record << field
 		if record.len > 1 || (record.len == 1 && record[0] != '') {
