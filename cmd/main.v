@@ -34,6 +34,11 @@ Interactive mode commands:
   .export <file>                   Export last query to CSV
   .dump [file]                     Dump full SQL schema+data to stdout or file
   .load <file> [entry]             Load a SQLite extension (.so/.dylib)
+  .bail [on|off]                   Stop on first error (default: off)
+  .echo [on|off]                   Echo each statement before executing (default: off)
+  .log [file|off]                  Log all statements to a file; off to disable
+  .changes [on|off]                Show row-change count after each statement (default: off)
+  .open <file>                     Open (or switch to) a different database file
   .databases                       List attached databases
   .indexes [table]                 List indexes
   .size                            Show database file size
@@ -55,6 +60,10 @@ mut:
 	output_once  bool   // if true, reset output_path after the next query result
 	insert_table string = 'tbl'
 	timer        bool   // if true, print execution time after each statement
+	bail         bool   // if true, exit(1) on first SQL error
+	echo         bool   // if true, print each statement before executing
+	log_path     string // '' = logging off; non-empty = path to append statements
+	changes      bool   // if true, print row-change count after each DML
 }
 
 fn main() {
@@ -194,7 +203,20 @@ fn (mut app App) finish_output() {
 	}
 }
 
-fn (mut app App) run(stmt string) {
+// log_stmt appends stmt to the log file when logging is enabled.
+fn (mut app App) log_stmt(stmt string) {
+	if app.log_path == '' {
+		return
+	}
+	existing := os.read_file(app.log_path) or { '' }
+	os.write_file(app.log_path, existing + stmt + ';\n') or {}
+}
+
+fn (mut app App) run(stmt string) bool {
+	if app.echo {
+		println(stmt)
+	}
+	app.log_stmt(stmt)
 	upper := stmt.trim_space().to_upper()
 	is_query := upper.starts_with('SELECT') || upper.starts_with('PRAGMA')
 		|| upper.starts_with('EXPLAIN') || upper.starts_with('WITH')
@@ -205,7 +227,10 @@ fn (mut app App) run(stmt string) {
 	if is_query {
 		rows := app.db.exec(stmt) or {
 			eprintln('Error: ${err}')
-			return
+			if app.bail {
+				exit(1)
+			}
+			return false
 		}
 		elapsed := time.since(t0)
 		if rows.len == 0 {
@@ -213,7 +238,7 @@ fn (mut app App) run(stmt string) {
 			if app.timer {
 				println('Run time: ${format_duration(elapsed)}')
 			}
-			return
+			return true
 		}
 		app.last_rows = rows
 		app.write_out(vsqlite.format_opts(rows, app.make_format_opts()))
@@ -234,6 +259,9 @@ fn (mut app App) run(stmt string) {
 		} else {
 			println('OK')
 		}
+		if app.changes {
+			println('Changes: ${affected}')
+		}
 		if app.timer {
 			println('Run time: ${format_duration(elapsed)}')
 		}
@@ -243,6 +271,7 @@ fn (mut app App) run(stmt string) {
 			app.refresh_completions()
 		}
 	}
+	return true
 }
 
 fn (mut app App) exec_file(path string) {
@@ -470,6 +499,69 @@ fn (mut app App) dot_cmd(cmd string) {
 			}
 			println('Extension loaded: ${parts[1]}')
 		}
+		'.bail' {
+			if parts.len < 2 {
+				println('Bail: ${if app.bail { "on" } else { "off" }}')
+				return
+			}
+			match parts[1] {
+				'on'  { app.bail = true;  println('Bail: on') }
+				'off' { app.bail = false; println('Bail: off') }
+				else  { eprintln('Use: .bail on|off') }
+			}
+		}
+		'.echo' {
+			if parts.len < 2 {
+				println('Echo: ${if app.echo { "on" } else { "off" }}')
+				return
+			}
+			match parts[1] {
+				'on'  { app.echo = true;  println('Echo: on') }
+				'off' { app.echo = false; println('Echo: off') }
+				else  { eprintln('Use: .echo on|off') }
+			}
+		}
+		'.log' {
+			if parts.len < 2 {
+				if app.log_path == '' {
+					println('Log: off')
+				} else {
+					println('Log: ${app.log_path}')
+				}
+				return
+			}
+			if parts[1] == 'off' {
+				app.log_path = ''
+				println('Logging off')
+			} else {
+				app.log_path = parts[1]
+				println('Logging to ${app.log_path}')
+			}
+		}
+		'.changes' {
+			if parts.len < 2 {
+				println('Changes: ${if app.changes { "on" } else { "off" }}')
+				return
+			}
+			match parts[1] {
+				'on'  { app.changes = true;  println('Changes: on') }
+				'off' { app.changes = false; println('Changes: off') }
+				else  { eprintln('Use: .changes on|off') }
+			}
+		}
+		'.open' {
+			if parts.len < 2 {
+				eprintln('Usage: .open <database-file>')
+				return
+			}
+			new_db := vsqlite.connect(parts[1]) or {
+				eprintln('Error: cannot open "${parts[1]}": ${err}')
+				return
+			}
+			app.db = new_db
+			app.refresh_completions()
+			println('Opened ${parts[1]}')
+		}
 		'.databases' {
 			rows := app.db.exec('PRAGMA database_list') or { return }
 			for row in rows {
@@ -520,7 +612,8 @@ fn (mut app App) import_csv(file string, table string) {
 fn (mut app App) refresh_completions() {
 	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.nullvalue', '.separator',
 		'.width', '.output', '.once', '.timer', '.explain', '.import', '.export',
-		'.dump', '.load', '.databases', '.indexes', '.size', '.help', '.quit', '.exit']
+		'.dump', '.load', '.bail', '.echo', '.log', '.changes', '.open',
+		'.databases', '.indexes', '.size', '.help', '.quit', '.exit']
 	kws := ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE',
 		'CREATE', 'TABLE', 'DROP', 'ALTER', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
 		'ON', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT',

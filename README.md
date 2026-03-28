@@ -71,6 +71,11 @@ printf ".mode csv\nSELECT * FROM users\n" | ./vsqlite mydb.sqlite > out.csv
 | `.export <file>` | Export the last query result to CSV |
 | `.dump [file]` | Dump full SQL schema + data to stdout, or to *file* |
 | `.load <file> [entry]` | Load a SQLite extension (`.so`/`.dylib`) |
+| `.bail on\|off` | Stop on first SQL error; `off` (default) continues |
+| `.echo on\|off` | Echo each statement to stdout before executing |
+| `.log <file>\|off` | Append every executed statement to *file*; `off` disables |
+| `.changes on\|off` | Print `Changes: N` after each INSERT/UPDATE/DELETE |
+| `.open <file>` | Open a new database file (replaces the current connection) |
 | `.indexes [table]` | List indexes |
 | `.databases` | List attached databases |
 | `.size` | Show database file size |

@@ -17,6 +17,11 @@
 - Multi-line statement editing; continuation prompt `...>` until `;`
 - Tab completion for SQL keywords, table names, column names, and dot commands
 - Command history persisted to `~/.vsqlite_history`
+- `.bail on` — exit on first SQL error (interactive and batch)
+- `.echo on` — print each statement before executing
+- `.log <file>` — append all executed statements to a file
+- `.changes on` — show row-change count after each DML statement
+- `.open <file>` — switch to a different database file mid-session
 
 ---
 
@@ -46,16 +51,16 @@
 - ~~Proper CSV/TSV import with quoting edge cases~~ — **implemented**; `parse_csv_records` is now content-based (handles embedded newlines in quoted fields, CRLF, bare CR); `read_tsv` / `read_csv_sep` added; `.import` auto-detects `.tsv`/`.tab` files
 
 ### Meta
-- `.bail on` — stop on first error
-- `.echo on` — echo statements before running
-- `.log <file>` — log all statements
-- `.changes` — show changed rows after each statement
-- `ATTACH` database support (`.open`)
+- ~~`.bail on` — stop on first error~~ — **implemented**; `.bail on/off` calls `exit(1)` on SQL query errors
+- ~~`.echo on` — echo statements before running~~ — **implemented**; `.echo on/off` prints each statement before executing
+- ~~`.log <file>` — log all statements~~ — **implemented**; `.log <file>` appends every executed statement; `.log off` disables
+- ~~`.changes` — show changed rows after each statement~~ — **implemented**; `.changes on/off` prints `Changes: N` after each DML
+- ~~`ATTACH` database support (`.open`)~~ — **implemented**; `.open <file>` opens a new database and replaces the current connection
 
 ---
 
 ## Summary
 
-vsqlite is roughly a ~85% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion), output richness (all major modes, `.width`, `.nullvalue`, `.separator`, `.output`/`.once`), SQL execution extras (prepared statements, `.timer`, `.explain`, multi-statement input), and import/export (`.dump`, `.load`, robust CSV/TSV with embedded newlines and CRLF) are now largely on par. The remaining gap is **session control** (`.bail on`, `.echo on`, `.log`, `.changes`, `ATTACH`/`.open`). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is small.
+vsqlite is roughly a ~95% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion), output richness (all major modes, `.width`, `.nullvalue`, `.separator`, `.output`/`.once`), SQL execution extras (prepared statements, `.timer`, `.explain`, multi-statement input), import/export (`.dump`, `.load`, robust CSV/TSV), and session control (`.bail`, `.echo`, `.log`, `.changes`, `.open`) are all implemented. For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap with `sqlite3` is very small.
 
-The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~1200 lines of V.
+The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~1400 lines of V.

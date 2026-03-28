@@ -3,6 +3,7 @@ module main
 import os
 import readline
 import time
+import vsqlite
 
 // --- format_bytes ---
 
@@ -302,6 +303,70 @@ fn test_format_duration_milliseconds() {
 fn test_format_duration_zero() {
 	d := time.Duration(0)
 	assert format_duration(d) == '0 µs'
+}
+
+// --- roundtrip ---
+
+// --- log_stmt ---
+
+fn test_log_stmt_writes_statement() {
+	tmp := os.join_path(os.temp_dir(), 'vsqlite_log_write.sql')
+	defer {
+		os.rm(tmp) or {}
+	}
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	mut app := App{ db: db, log_path: tmp }
+	app.log_stmt('SELECT 1')
+	content := os.read_file(tmp) or { panic(err) }
+	assert content.contains('SELECT 1;')
+}
+
+fn test_log_stmt_appends_multiple() {
+	tmp := os.join_path(os.temp_dir(), 'vsqlite_log_multi.sql')
+	defer {
+		os.rm(tmp) or {}
+	}
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	mut app := App{ db: db, log_path: tmp }
+	app.log_stmt('SELECT 1')
+	app.log_stmt('SELECT 2')
+	content := os.read_file(tmp) or { panic(err) }
+	assert content.contains('SELECT 1;')
+	assert content.contains('SELECT 2;')
+}
+
+fn test_log_stmt_disabled_when_no_path() {
+	// No log_path set — must not panic or write any file
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	mut app := App{ db: db }
+	app.log_stmt('SELECT 1') // should be a no-op
+	assert app.log_path == ''
+}
+
+// --- App defaults ---
+
+fn test_app_defaults_bail_off() {
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	app := App{ db: db }
+	assert app.bail == false
+}
+
+fn test_app_defaults_echo_off() {
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	app := App{ db: db }
+	assert app.echo == false
+}
+
+fn test_app_defaults_changes_off() {
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	app := App{ db: db }
+	assert app.changes == false
+}
+
+fn test_app_defaults_log_path_empty() {
+	mut db := vsqlite.connect(':memory:') or { panic(err) }
+	app := App{ db: db }
+	assert app.log_path == ''
 }
 
 // --- roundtrip ---
