@@ -237,3 +237,151 @@ fn test_parse_csv_line_quoted() {
 fn test_parse_csv_line_escaped_quote() {
 	assert vsqlite.parse_csv_line('"say ""hi""",x') == ['say "hi"', 'x']
 }
+
+// --- FormatOptions / new modes ---
+
+fn test_format_opts_nullvalue() {
+	rows := [vsqlite.Row{cols: ['a'], vals: ['']}]
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{
+		mode:      .csv
+		headers:   false
+		nullvalue: 'N/A'
+	})
+	assert out == 'N/A'
+}
+
+fn test_format_opts_separator() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 1') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{
+		mode:      .csv
+		headers:   false
+		separator: '|'
+	})
+	assert out == '1|Alice'
+}
+
+fn test_format_opts_col_widths() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 1') or { panic(err) }
+	mut widths := map[int]int{}
+	widths[0] = 10
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{
+		mode:      .table
+		headers:   false
+		col_widths: widths
+	})
+	// The id column should be padded to width 10
+	assert out.contains('1         ')
+}
+
+fn test_format_box() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 2') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .box, headers: true })
+	assert out.contains('┌')
+	assert out.contains('┐')
+	assert out.contains('└')
+	assert out.contains('┘')
+	assert out.contains('Alice')
+	assert out.contains('Bob')
+}
+
+fn test_format_box_no_headers() {
+	mut db := setup()
+	rows := db.exec('SELECT id FROM users LIMIT 1') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .box, headers: false })
+	assert out.contains('┌')
+	assert !out.contains('├') // no header separator when headers off
+}
+
+fn test_format_markdown() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 2') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .markdown, headers: true })
+	lines := out.split_into_lines()
+	assert lines.len == 4 // header + separator + 2 data rows
+	assert lines[0].starts_with('|')
+	assert lines[1].contains('---')
+	assert lines[2].contains('Alice')
+	assert lines[3].contains('Bob')
+}
+
+fn test_format_json() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 1') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .json })
+	assert out.starts_with('[')
+	assert out.ends_with(']')
+	assert out.contains('"id"')
+	assert out.contains('"name"')
+	assert out.contains('"Alice"')
+}
+
+fn test_format_json_empty() {
+	rows := []vsqlite.Row{}
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .json })
+	assert out == '[]'
+}
+
+fn test_format_json_null() {
+	rows := [vsqlite.Row{cols: ['x'], vals: ['']}]
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .json })
+	assert out.contains(':null')
+}
+
+fn test_format_html() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 1') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .html, headers: true })
+	assert out.contains('<table>')
+	assert out.contains('</table>')
+	assert out.contains('<th>id</th>')
+	assert out.contains('<td>Alice</td>')
+}
+
+fn test_format_html_escape() {
+	rows := [vsqlite.Row{cols: ['x'], vals: ['<b>hi</b>']}]
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .html, headers: false })
+	assert out.contains('&lt;b&gt;hi&lt;/b&gt;')
+}
+
+fn test_format_insert() {
+	mut db := setup()
+	rows := db.exec("SELECT id, name FROM users WHERE id = 1") or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{
+		mode:       .insert
+		table_name: 'users'
+	})
+	assert out.contains("INSERT INTO users(id,name) VALUES('1','Alice');")
+}
+
+fn test_format_insert_null() {
+	rows := [vsqlite.Row{cols: ['a', 'b'], vals: ['1', '']}]
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .insert, table_name: 'tbl' })
+	assert out.contains('NULL')
+	assert out.contains("'1'")
+}
+
+fn test_format_quote() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 1') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .quote, headers: false })
+	assert out == "'1','Alice'"
+}
+
+fn test_format_quote_with_headers() {
+	mut db := setup()
+	rows := db.exec('SELECT id, name FROM users LIMIT 1') or { panic(err) }
+	out := vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: .quote, headers: true })
+	lines := out.split_into_lines()
+	assert lines[0] == 'id,name'
+	assert lines[1] == "'1','Alice'"
+}
+
+fn test_format_all_empty() {
+	rows := []vsqlite.Row{}
+	for mode in [vsqlite.OutputMode.box, .markdown, .html, .insert, .quote] {
+		assert vsqlite.format_opts(rows, vsqlite.FormatOptions{ mode: mode }) == ''
+	}
+}

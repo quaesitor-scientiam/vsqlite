@@ -18,11 +18,11 @@
 - ~~Tab completion for table/column names~~ — **implemented**; Tab completes SQL keywords, table names, column names, and dot commands; list refreshes after DDL
 
 ### Output
-- `.width` — set per-column widths
-- `.nullvalue` — customize NULL display string
-- `.separator` — custom delimiters
-- `box`, `markdown`, `json`, `html`, `insert`, `quote` output modes
-- `.once <file>` / `.output <file>` — redirect output to file mid-session
+- ~~`.width` — set per-column widths~~ — **implemented**
+- ~~`.nullvalue` — customize NULL display string~~ — **implemented**
+- ~~`.separator` — custom delimiters~~ — **implemented**
+- ~~`box`, `markdown`, `json`, `html`, `insert`, `quote` output modes~~ — **implemented**
+- ~~`.once <file>` / `.output <file>` — redirect output to file mid-session~~ — **implemented**
 
 ### SQL execution
 - Prepared statements / parameter binding
@@ -46,6 +46,6 @@
 
 ## Summary
 
-vsqlite is roughly a ~35% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion) is now on par with sqlite3. The biggest remaining gaps are in **output richness** (`.width`, box/markdown/json modes, `.output`) and **import/export completeness** (`.dump`, extensions). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller.
+vsqlite is roughly a ~55% feature implementation of sqlite3. Shell quality (readline, multi-line input, tab completion) is on par with sqlite3. Output richness (all major modes, `.width`, `.nullvalue`, `.separator`, `.output`/`.once`) is now largely on par too. The biggest remaining gaps are **import/export completeness** (`.dump`, extensions) and **SQL execution extras** (prepared statements, `.timer`, `.bail`). For scripting (`vsqlite db.sqlite "..."` or `-f`), the gap is smaller still.
 
 The sqlite3 binary is ~1.5MB of battle-hardened C. vsqlite is ~500 lines of V.

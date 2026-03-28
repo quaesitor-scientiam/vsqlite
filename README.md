@@ -58,8 +58,13 @@ printf ".mode csv\nSELECT * FROM users\n" | ./vsqlite mydb.sqlite > out.csv
 |---|---|
 | `.tables` | List all tables |
 | `.schema [table]` | Show CREATE statement for a table (or all objects) |
-| `.mode table\|csv\|line` | Change output format (default: `table`) |
+| `.mode <mode> [tbl]` | Change output format (default: `table`) — see modes below |
 | `.headers on\|off` | Toggle column headers |
+| `.nullvalue <str>` | Set display string for NULL values (default: `NULL`) |
+| `.separator <sep>` | Set column separator for csv/quote modes (default: `,`; use `\t` for tab) |
+| `.width [N1 N2 …]` | Fix per-column widths in table/box/markdown modes; `.width 0` resets to auto |
+| `.output [file\|-]` | Redirect all query output to *file*; no arg or `-` resets to stdout |
+| `.once <file>` | Redirect the **next** query result only to *file*, then resume stdout |
 | `.import <file> <table>` | Import a CSV file into a table |
 | `.export <file>` | Export the last query result to CSV |
 | `.indexes [table]` | List indexes |
@@ -119,7 +124,23 @@ Press Tab again to cycle through additional matches. The completion list is refr
 +----+-------+-----+
 ```
 
-**csv** — RFC 4180 CSV
+**box** — same as `table` but with Unicode box-drawing characters
+```
+┌────┬───────┬─────┐
+│ id │ name  │ age │
+├────┼───────┼─────┤
+│ 1  │ Alice │ 30  │
+└────┴───────┴─────┘
+```
+
+**markdown** — GitHub-Flavored Markdown table
+```
+| id | name  | age |
+| -- | ----- | --- |
+| 1  | Alice | 30  |
+```
+
+**csv** — RFC 4180 CSV (separator controlled by `.separator`)
 ```
 id,name,age
 1,Alice,30
@@ -130,6 +151,29 @@ id,name,age
  id: 1
 name: Alice
  age: 30
+```
+
+**json** — JSON array of objects; SQL NULLs become JSON `null`
+```json
+[{"id":"1","name":"Alice","age":"30"}]
+```
+
+**html** — HTML `<table>` with optional `<th>` headers; values are HTML-escaped
+```html
+<table>
+<tr><th>id</th><th>name</th><th>age</th></tr>
+<tr><td>1</td><td>Alice</td><td>30</td></tr>
+</table>
+```
+
+**insert** — SQL `INSERT` statements (table name set via `.mode insert <tbl>`)
+```sql
+INSERT INTO users(id,name,age) VALUES('1','Alice','30');
+```
+
+**quote** — SQL-quoted values, one row per line (separator controlled by `.separator`)
+```
+'1','Alice','30'
 ```
 
 ---

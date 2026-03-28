@@ -18,8 +18,15 @@ Usage:
 Interactive mode commands:
   .tables                          List all tables
   .schema [table]                  Show schema for table(s)
-  .mode [table|csv|line]           Change output mode (default: table)
+  .mode [table|csv|line|box|       Change output mode (default: table)
+        markdown|json|html|
+        insert [tbl]|quote]
   .headers [on|off]                Toggle column headers
+  .nullvalue [str]                 Set NULL display string (default: NULL)
+  .separator [sep]                 Set column separator (default: ,)
+  .width [N1 N2 ...]               Set per-column widths (0 = reset to auto)
+  .output [file|-]                 Redirect output to file (no arg = stdout)
+  .once <file>                     Redirect next query result to file
   .import <file> <table>           Import CSV into table
   .export <file>                   Export last query to CSV
   .databases                       List attached databases
@@ -31,11 +38,17 @@ const history_file = os.join_path(os.home_dir(), '.vsqlite_history')
 
 struct App {
 mut:
-	db        vsqlite.DB
-	rl        readline.Readline
-	mode      vsqlite.OutputMode = .table
-	headers   bool               = true
-	last_rows []vsqlite.Row
+	db           vsqlite.DB
+	rl           readline.Readline
+	mode         vsqlite.OutputMode = .table
+	headers      bool               = true
+	last_rows    []vsqlite.Row
+	nullvalue    string             = 'NULL'
+	separator    string             = ','
+	col_widths   map[int]int
+	output_path  string // '' = stdout; non-empty = path to write query results
+	output_once  bool   // if true, reset output_path after the next query result
+	insert_table string = 'tbl'
 }
 
 fn main() {
@@ -141,6 +154,38 @@ fn history_save(rl readline.Readline, path string) {
 	os.write_file(path, lines.join('\n') + '\n') or {}
 }
 
+// make_format_opts builds a FormatOptions from the current App settings.
+fn (app App) make_format_opts() vsqlite.FormatOptions {
+	return vsqlite.FormatOptions{
+		mode:       app.mode
+		headers:    app.headers
+		nullvalue:  app.nullvalue
+		separator:  app.separator
+		col_widths: app.col_widths
+		table_name: app.insert_table
+	}
+}
+
+// write_out writes s to the configured output destination (file or stdout).
+// Does NOT reset output_once — call finish_output() after the full result.
+fn (mut app App) write_out(s string) {
+	if app.output_path != '' {
+		os.write_file(app.output_path, os.read_file(app.output_path) or { '' } + s + '\n') or {
+			eprintln('Error: cannot write to "${app.output_path}": ${err}')
+		}
+	} else {
+		println(s)
+	}
+}
+
+// finish_output resets output_once after a full query result has been written.
+fn (mut app App) finish_output() {
+	if app.output_once {
+		app.output_path = ''
+		app.output_once = false
+	}
+}
+
 fn (mut app App) run(stmt string) {
 	upper := stmt.trim_space().to_upper()
 	is_query := upper.starts_with('SELECT') || upper.starts_with('PRAGMA')
@@ -153,11 +198,13 @@ fn (mut app App) run(stmt string) {
 			return
 		}
 		if rows.len == 0 {
+			app.finish_output()
 			return
 		}
 		app.last_rows = rows
-		println(vsqlite.format(rows, app.mode, app.headers))
-		println('(${rows.len} row${if rows.len == 1 { '' } else { 's' }})')
+		app.write_out(vsqlite.format_opts(rows, app.make_format_opts()))
+		app.write_out('(${rows.len} row${if rows.len == 1 { '' } else { 's' }})')
+		app.finish_output()
 	} else {
 		app.db.exec_none(stmt)
 		affected := app.db.affected_rows()
@@ -223,10 +270,24 @@ fn (mut app App) dot_cmd(cmd string) {
 				return
 			}
 			match parts[1] {
-				'table' { app.mode = .table }
-				'csv' { app.mode = .csv }
-				'line' { app.mode = .line }
-				else { eprintln('Unknown mode: ${parts[1]}. Use: table, csv, line') }
+				'table'    { app.mode = .table }
+				'csv'      { app.mode = .csv }
+				'line'     { app.mode = .line }
+				'box'      { app.mode = .box }
+				'markdown' { app.mode = .markdown }
+				'json'     { app.mode = .json }
+				'html'     { app.mode = .html }
+				'insert'   {
+					app.mode = .insert
+					if parts.len > 2 {
+						app.insert_table = parts[2]
+					}
+				}
+				'quote'    { app.mode = .quote }
+				else {
+					eprintln('Unknown mode: ${parts[1]}. Use: table, csv, line, box, markdown, json, html, insert [tbl], quote')
+					return
+				}
 			}
 			println('Mode set to: ${app.mode}')
 		}
@@ -236,10 +297,84 @@ fn (mut app App) dot_cmd(cmd string) {
 				return
 			}
 			match parts[1] {
-				'on' { app.headers = true }
+				'on'  { app.headers = true }
 				'off' { app.headers = false }
-				else { eprintln('Use: .headers on|off') }
+				else  { eprintln('Use: .headers on|off') }
 			}
+		}
+		'.nullvalue' {
+			if parts.len < 2 {
+				println('NULL display: "${app.nullvalue}"')
+				return
+			}
+			app.nullvalue = parts[1]
+			println('NULL value set to "${app.nullvalue}"')
+		}
+		'.separator' {
+			if parts.len < 2 {
+				println('Separator: "${app.separator}"')
+				return
+			}
+			mut sep := parts[1]
+			sep = sep.replace('\\t', '\t').replace('\\n', '\n')
+			app.separator = sep
+			println('Separator set to "${app.separator}"')
+		}
+		'.width' {
+			if parts.len < 2 {
+				if app.col_widths.len == 0 {
+					println('Column widths: auto')
+				} else {
+					mut pairs := []string{}
+					for k, v in app.col_widths {
+						pairs << 'col${k}=${v}'
+					}
+					println('Column widths: ${pairs.join(", ")}')
+				}
+				return
+			}
+			// Single '0' resets all widths to auto
+			if parts.len == 2 && parts[1] == '0' {
+				app.col_widths = map[int]int{}
+				println('Column widths reset to auto')
+				return
+			}
+			app.col_widths = map[int]int{}
+			for i, part in parts[1..] {
+				w := part.int()
+				if w > 0 {
+					app.col_widths[i] = w
+				}
+			}
+			println('Column widths set')
+		}
+		'.output' {
+			if parts.len < 2 || parts[1] in ['stdout', '-'] {
+				app.output_path = ''
+				app.output_once = false
+				println('Output reset to stdout')
+			} else {
+				// Truncate/create the file fresh
+				os.write_file(parts[1], '') or {
+					eprintln('Error: cannot open "${parts[1]}": ${err}')
+					return
+				}
+				app.output_path = parts[1]
+				app.output_once = false
+				println('Output redirected to ${parts[1]}')
+			}
+		}
+		'.once' {
+			if parts.len < 2 {
+				eprintln('Usage: .once <file>')
+				return
+			}
+			os.write_file(parts[1], '') or {
+				eprintln('Error: cannot open "${parts[1]}": ${err}')
+				return
+			}
+			app.output_path = parts[1]
+			app.output_once = true
 		}
 		'.import' {
 			if parts.len < 3 {
@@ -309,8 +444,9 @@ fn (mut app App) import_csv(file string, table string) {
 // refresh_completions rebuilds the readline completion callback from the
 // current schema.  Call once at startup and again after any DDL statement.
 fn (mut app App) refresh_completions() {
-	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.import', '.export',
-		'.databases', '.indexes', '.size', '.help', '.quit', '.exit']
+	dot_cmds := ['.tables', '.schema', '.mode', '.headers', '.nullvalue', '.separator',
+		'.width', '.output', '.once', '.import', '.export', '.databases', '.indexes',
+		'.size', '.help', '.quit', '.exit']
 	kws := ['SELECT', 'FROM', 'WHERE', 'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE',
 		'CREATE', 'TABLE', 'DROP', 'ALTER', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
 		'ON', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT',

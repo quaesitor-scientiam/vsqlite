@@ -34,8 +34,14 @@ pub fn write_csv(path string, rows []Row, headers bool) ! {
 	os.write_file(path, lines.join('\n') + '\n')!
 }
 
+// csv_escape quotes a field for RFC 4180 CSV (comma separator).
 pub fn csv_escape(s string) string {
-	if s.contains(',') || s.contains('"') || s.contains('\n') {
+	return csv_escape_sep(s, ',')
+}
+
+// csv_escape_sep quotes a field if it contains the separator, a double-quote, or a newline.
+fn csv_escape_sep(s string, sep string) string {
+	if s.contains(sep) || s.contains('"') || s.contains('\n') {
 		return '"' + s.replace('"', '""') + '"'
 	}
 	return s
